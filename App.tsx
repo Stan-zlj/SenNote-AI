@@ -15,7 +15,7 @@ const HighlightText: React.FC<{ text: string; query: string }> = ({ text, query 
     <>
       {parts.map((part, i) => 
         part.toLowerCase() === query.toLowerCase() ? (
-          <span key={i} className="bg-indigo-500/40 text-indigo-100 px-0.5 rounded border border-indigo-400/30">{part}</span>
+          <span key={i} className="bg-indigo-500/40 text-indigo-100 px-0.5 rounded border border-indigo-400/30 font-medium">{part}</span>
         ) : (
           part
         )
@@ -26,7 +26,7 @@ const HighlightText: React.FC<{ text: string; query: string }> = ({ text, query 
 
 const App: React.FC = () => {
   const [isMinimized, setIsMinimized] = useState(false);
-  const [isCompactMode, setIsCompactMode] = useState(false); // New Floating Mode
+  const [isCompactMode, setIsCompactMode] = useState(false);
   const [activeView, setActiveView] = useState<ViewMode>(ViewMode.NOTES);
   const [searchQuery, setSearchQuery] = useState('');
   
@@ -117,7 +117,6 @@ const App: React.FC = () => {
         onClick={() => setIsMinimized(false)}
         className="fixed bottom-8 right-8 w-14 h-14 bg-indigo-600 rounded-full flex items-center justify-center cursor-pointer shadow-2xl hover:scale-110 transition-all border-2 border-white/20 z-50 group"
       >
-        <div className="absolute -top-12 right-0 bg-slate-800 text-white text-[10px] px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity">Restore ZenNote</div>
         <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5" />
         </svg>
@@ -126,11 +125,11 @@ const App: React.FC = () => {
   }
 
   return (
-    <div className={`flex h-screen transition-all duration-700 bg-slate-900/95 text-slate-100 overflow-hidden ${isCompactMode ? 'w-[450px] fixed top-4 right-4 rounded-3xl border-2 border-indigo-500/30' : 'w-full rounded-xl border border-white/10'} shadow-2xl backdrop-blur-xl`}>
-      <div className="absolute top-0 left-0 right-0 h-12 flex justify-between items-center px-4 z-50 bg-slate-950/40 border-b border-white/5">
-        <div className="flex items-center gap-2">
+    <div className={`flex h-screen transition-all duration-700 bg-slate-900 text-slate-100 overflow-hidden ${isCompactMode ? 'w-[480px] fixed top-4 right-4 rounded-3xl border-2 border-indigo-500/30 shadow-[0_30px_60px_-15px_rgba(0,0,0,0.5)]' : 'w-full rounded-xl border border-white/10'} backdrop-blur-xl`}>
+      <div className="absolute top-0 left-0 right-0 h-12 flex justify-between items-center px-4 z-50 bg-slate-950/40 border-b border-white/5 pointer-events-none">
+        <div className="flex items-center gap-2 pointer-events-auto">
           <div className="w-2 h-2 rounded-full bg-indigo-500 animate-pulse"></div>
-          <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">{isCompactMode ? 'Floating Note' : 'ZenNote AI'}</span>
+          <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">{isCompactMode ? 'Floating Mode' : 'ZenNote AI'}</span>
         </div>
 
         {!isCompactMode && (
@@ -140,8 +139,8 @@ const App: React.FC = () => {
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Global search..."
-                className="block w-full pl-10 pr-10 py-1 bg-slate-800/50 border border-white/10 rounded-full text-xs text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/30 transition-all"
+                placeholder="Global search across notes & library..."
+                className="block w-full pl-10 pr-10 py-1.5 bg-slate-800/50 border border-white/10 rounded-full text-xs text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/30 transition-all"
               />
               <div className="absolute inset-y-0 left-0 pl-3 flex items-center"><svg className="h-3.5 w-3.5 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg></div>
             </div>
@@ -162,14 +161,43 @@ const App: React.FC = () => {
       <main className={`flex-1 overflow-y-auto pt-16 pb-6 px-6 relative custom-scrollbar`}>
         {searchQuery.trim() && !isCompactMode ? (
           <div className="animate-in fade-in slide-in-from-bottom-4 duration-300 space-y-8 max-w-4xl mx-auto">
-            <header className="flex items-center justify-between">
+            <header className="flex items-center justify-between border-b border-white/5 pb-4">
               <div>
-                <h2 className="text-2xl font-bold">Search Results</h2>
-                <p className="text-slate-400 text-sm">Matches found for "<span className="text-indigo-400">{searchQuery}</span>"</p>
+                <h2 className="text-2xl font-bold">Search Vault</h2>
+                <p className="text-slate-400 text-sm">Found {filteredResults.notes.length + filteredResults.books.length} matches for "<span className="text-indigo-400">{searchQuery}</span>"</p>
               </div>
-              <button onClick={() => setSearchQuery('')} className="text-xs text-slate-500 border border-white/5 px-3 py-1.5 rounded-lg hover:bg-slate-800 transition-all">Exit Search</button>
+              <button onClick={() => setSearchQuery('')} className="text-xs text-slate-500 border border-white/5 px-3 py-1.5 rounded-lg hover:bg-slate-800 transition-all font-bold uppercase">Clear Results</button>
             </header>
-            {/* Search result items mapping */}
+            
+            <div className="grid gap-6">
+              {filteredResults.notes.length > 0 && (
+                <section className="space-y-3">
+                  <h3 className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Clippings ({filteredResults.notes.length})</h3>
+                  {filteredResults.notes.map(note => (
+                    <div key={note.id} className="bg-slate-800/30 border border-white/5 p-4 rounded-xl">
+                      <p className="text-sm text-slate-300 leading-relaxed"><HighlightText text={note.content} query={searchQuery} /></p>
+                    </div>
+                  ))}
+                </section>
+              )}
+              {filteredResults.books.length > 0 && (
+                <section className="space-y-3">
+                  <h3 className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Library ({filteredResults.books.length})</h3>
+                  {filteredResults.books.map(book => (
+                    <div key={book.id} onClick={() => {setActiveView(ViewMode.READER); setSearchQuery('');}} className="bg-slate-800/30 border border-white/5 p-4 rounded-xl flex items-center gap-4 cursor-pointer hover:bg-indigo-500/5 transition-colors">
+                      <div className="w-10 h-10 bg-slate-900 rounded-lg flex items-center justify-center text-xl">{book.type === 'video' ? '🎥' : '📄'}</div>
+                      <div>
+                        <h4 className="font-bold text-sm"><HighlightText text={book.title} query={searchQuery} /></h4>
+                        <p className="text-[10px] text-slate-500 uppercase font-bold">{book.type}</p>
+                      </div>
+                    </div>
+                  ))}
+                </section>
+              )}
+              {filteredResults.notes.length === 0 && filteredResults.books.length === 0 && (
+                <div className="text-center py-20 text-slate-500 italic">No matches in your vault.</div>
+              )}
+            </div>
           </div>
         ) : (
           <>

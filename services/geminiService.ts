@@ -9,7 +9,21 @@ const getAIClient = () => {
 export const quickQuery = async (prompt: string) => {
   const ai = getAIClient();
   const response = await ai.models.generateContent({
-    // Updated to use the correct model alias from guidelines
+    model: 'gemini-flash-lite-latest',
+    contents: prompt,
+  });
+  return response.text;
+};
+
+// Translation function
+export const translateText = async (text: string, targetLang: string = "Chinese") => {
+  const ai = getAIClient();
+  const prompt = `Translate the following text into ${targetLang}. 
+  If the text is already in ${targetLang}, translate it into English instead.
+  Maintain the original formatting and tone. 
+  Text to translate: "${text}"`;
+  
+  const response = await ai.models.generateContent({
     model: 'gemini-flash-lite-latest',
     contents: prompt,
   });
@@ -78,7 +92,7 @@ export const generateStudyVideo = async (prompt: string, isPortrait: boolean = f
   });
 
   while (!operation.done) {
-    await new Promise(resolve => setTimeout(resolve, 5000));
+    await new Promise(resolve => setTimeout(resolve, 10000));
     operation = await ai.operations.getVideosOperation({ operation: operation });
   }
 
@@ -89,7 +103,7 @@ export const generateStudyVideo = async (prompt: string, isPortrait: boolean = f
 };
 
 // Audio Transcription
-export const transcribeAudio = async (base64Audio: string, mimeType: string = 'audio/mp3') => {
+export const transcribeAudio = async (base64Audio: string, mimeType: string = 'audio/webm') => {
   const ai = getAIClient();
   const response = await ai.models.generateContent({
     model: 'gemini-3-flash-preview',
