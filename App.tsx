@@ -7,22 +7,23 @@ import ReaderView from './components/ReaderView';
 import StudioView from './components/StudioView';
 import ProgressView from './components/ProgressView';
 
-// 获取 Electron 实例
+// 获取 Electron IPC
 const getIpc = () => {
   try {
-    return (window as any).require ? (window as any).require('electron').ipcRenderer : null;
+    const electron = (window as any).require ? (window as any).require('electron') : null;
+    return electron ? electron.ipcRenderer : null;
   } catch (e) {
+    console.error("IPC not available", e);
     return null;
   }
 };
 
-// 拖拽手柄：-webkit-app-region: drag 是 Electron 窗口可拖拽的关键
 const DragHandle = () => (
   <div 
     style={{ WebkitAppRegion: 'drag' } as any} 
     className="absolute top-0 left-0 right-0 h-12 z-[60] flex items-center justify-center group cursor-move"
   >
-    <div className="w-16 h-1.5 bg-white/10 rounded-full group-hover:bg-white/30 transition-all mt-1 shadow-inner"></div>
+    <div className="w-16 h-1 bg-white/5 rounded-full group-hover:bg-white/20 transition-all mt-2"></div>
   </div>
 );
 
@@ -30,16 +31,33 @@ const App: React.FC = () => {
   const [activeView, setActiveView] = useState<ViewMode>(ViewMode.NOTES);
   const ipc = getIpc();
   
+  // 1. 初始化数据：从本地读取
   const [notes, setNotesState] = useState<Note[]>(() => {
     const saved = localStorage.getItem('zen_notes');
     return saved ? JSON.parse(saved) : [];
   });
   
+  const [checkIns, setCheckIns] = useState<DailyCheckIn[]>(() => {
+    const saved = localStorage.getItem('zen_checkins');
+    return saved ? JSON.parse(saved) : [];
+  });
+  
+  const [books, setBooks] = useState<Book[]>(() => {
+    const saved = localStorage.getItem('zen_books');
+    return saved ? JSON.parse(saved) : [];
+  });
+
+  const [pastNotes, setPastNotes] = useState<Note[][]>([]);
+  const [futureNotes, setFutureNotes] = useState<Note[][]>([]);
+
+  // 2. 剪贴板自动同步并持久化
   useEffect(() => {
     if (ipc) {
       const handleClipboard = (_event: any, text: string) => {
         setNotesState(prev => {
+          // 防止重复添加相同内容
           if (prev.length > 0 && prev[0].content === text) return prev;
+          
           const newNote: Note = {
             id: Date.now().toString(),
             content: text,
@@ -48,33 +66,29 @@ const App: React.FC = () => {
             style: { bold: false, italic: false, underline: false }
           };
           const updated = [newNote, ...prev];
+          // 立即持久化，防止崩溃丢失
           localStorage.setItem('zen_notes', JSON.stringify(updated));
           return updated;
         });
       };
+      
       ipc.on('clipboard-sync', handleClipboard);
-      return () => {
-        ipc.removeAllListeners('clipboard-sync');
-      };
+      return () => { ipc.removeAllListeners('clipboard-sync'); };
     }
   }, [ipc]);
 
-  const [pastNotes, setPastNotes] = useState<Note[][]>([]);
-  const [futureNotes, setFutureNotes] = useState<Note[][]>([]);
-  const [checkIns, setCheckIns] = useState<DailyCheckIn[]>(() => {
-    const saved = localStorage.getItem('zen_checkins');
-    return saved ? JSON.parse(saved) : [];
-  });
-  const [books, setBooks] = useState<Book[]>(() => {
-    const saved = localStorage.getItem('zen_books');
-    return saved ? JSON.parse(saved) : [];
-  });
-
+  // 3. 通用持久化监听
   useEffect(() => {
     localStorage.setItem('zen_notes', JSON.stringify(notes));
+  }, [notes]);
+
+  useEffect(() => {
     localStorage.setItem('zen_checkins', JSON.stringify(checkIns));
+  }, [checkIns]);
+
+  useEffect(() => {
     localStorage.setItem('zen_books', JSON.stringify(books));
-  }, [notes, checkIns, books]);
+  }, [books]);
 
   const setNotes = useCallback((newNotes: Note[] | ((prev: Note[]) => Note[]), saveHistory = true) => {
     if (saveHistory) {
@@ -115,22 +129,22 @@ const App: React.FC = () => {
     <div className="flex h-screen bg-slate-900 text-slate-100 overflow-hidden relative border border-white/10 rounded-xl shadow-2xl">
       <DragHandle />
       
-      {/* 顶部标题栏 */}
-      <div className="absolute top-0 left-0 right-0 h-12 flex justify-between items-center px-4 z-50 pointer-events-none">
+      {/* 顶部控制栏 */}
+      <div className="absolute top-0 left-0 right-0 h-12 flex justify-between items-center px-4 z-[70] pointer-events-none">
         <div className="flex items-center gap-2">
           <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></div>
-          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-[0.2em]">ZenNote AI</span>
+          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">ZenNote AI</span>
         </div>
         <div className="flex space-x-3 items-center pointer-events-auto">
            <button 
              onClick={() => ipc?.send('window-min')} 
-             className="w-3 h-3 rounded-full bg-yellow-500/80 hover:bg-yellow-400 transition-all hover:scale-110 shadow-lg" 
+             className="w-3 h-3 rounded-full bg-yellow-500/80 hover:bg-yellow-400 transition-all hover:scale-125 shadow-lg" 
              title="最小化"
            />
            <button 
              onClick={() => ipc?.send('window-close')} 
-             className="w-3 h-3 rounded-full bg-red-500/80 hover:bg-red-400 transition-all hover:scale-110 shadow-lg" 
-             title="关闭"
+             className="w-3 h-3 rounded-full bg-red-500/80 hover:bg-red-400 transition-all hover:scale-125 shadow-lg" 
+             title="隐藏到后台"
            />
         </div>
       </div>
