@@ -7,7 +7,13 @@ import ReaderView from './components/ReaderView';
 import StudioView from './components/StudioView';
 import ProgressView from './components/ProgressView';
 
-// Helper component for highlighting search queries
+// 拖拽手柄组件 (Electron 专用)
+const DragHandle = () => (
+  <div style={{ WebkitAppRegion: 'drag' } as any} className="absolute top-0 left-0 right-0 h-8 cursor-move z-[60] flex items-center justify-center group">
+    <div className="w-12 h-1 bg-white/10 rounded-full group-hover:bg-white/30 transition-all"></div>
+  </div>
+);
+
 const HighlightText: React.FC<{ text: string; query: string }> = ({ text, query }) => {
   if (!query.trim()) return <>{text}</>;
   const parts = text.split(new RegExp(`(${query})`, 'gi'));
@@ -26,7 +32,7 @@ const HighlightText: React.FC<{ text: string; query: string }> = ({ text, query 
 
 const App: React.FC = () => {
   const [isMinimized, setIsMinimized] = useState(false);
-  const [isCompactMode, setIsCompactMode] = useState(false);
+  const [isCompactMode, setIsCompactMode] = useState(true); // 默认开启悬浮模式
   const [activeView, setActiveView] = useState<ViewMode>(ViewMode.NOTES);
   const [searchQuery, setSearchQuery] = useState('');
   
@@ -34,6 +40,30 @@ const App: React.FC = () => {
     const saved = localStorage.getItem('zen_notes');
     return saved ? JSON.parse(saved) : [];
   });
+  
+  // 监听 Electron 剪贴板同步
+  useEffect(() => {
+    if ((window as any).ipcRenderer) {
+      const ipc = (window as any).ipcRenderer;
+      ipc.on('clipboard-sync', (event: any, text: string) => {
+        // 如果内容不在最新笔记中，则添加
+        setNotesState(prev => {
+          if (prev[0]?.content === text) return prev;
+          const newNote: Note = {
+            id: Date.now().toString(),
+            content: text,
+            createdAt: Date.now(),
+            tags: ['Auto-Copy'],
+            style: { bold: false, italic: false, underline: false }
+          };
+          const updated = [newNote, ...prev];
+          localStorage.setItem('zen_notes', JSON.stringify(updated));
+          return updated;
+        });
+      });
+    }
+  }, []);
+
   const [pastNotes, setPastNotes] = useState<Note[][]>([]);
   const [futureNotes, setFutureNotes] = useState<Note[][]>([]);
 
@@ -87,10 +117,6 @@ const App: React.FC = () => {
     setNotes([newNote, ...notes]);
   };
 
-  const toggleNoteStyle = (id: string, styleKey: 'bold' | 'italic' | 'underline') => {
-    setNotes(prev => prev.map(n => n.id === id ? { ...n, style: { ...n.style, [styleKey]: !n.style?.[styleKey] } } : n));
-  };
-
   const addBook = (bookData: Omit<Book, 'id'>) => {
     setBooks([{ ...bookData, id: Date.now().toString() }, ...books]);
   };
@@ -117,104 +143,35 @@ const App: React.FC = () => {
         onClick={() => setIsMinimized(false)}
         className="fixed bottom-8 right-8 w-14 h-14 bg-indigo-600 rounded-full flex items-center justify-center cursor-pointer shadow-2xl hover:scale-110 transition-all border-2 border-white/20 z-50 group"
       >
-        <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5" />
-        </svg>
+        <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5" /></svg>
       </div>
     );
   }
 
   return (
-    <div className={`flex h-screen transition-all duration-700 bg-slate-900 text-slate-100 overflow-hidden ${isCompactMode ? 'w-[480px] fixed top-4 right-4 rounded-3xl border-2 border-indigo-500/30 shadow-[0_30px_60px_-15px_rgba(0,0,0,0.5)]' : 'w-full rounded-xl border border-white/10'} backdrop-blur-xl`}>
-      <div className="absolute top-0 left-0 right-0 h-12 flex justify-between items-center px-4 z-50 bg-slate-950/40 border-b border-white/5 pointer-events-none">
-        <div className="flex items-center gap-2 pointer-events-auto">
-          <div className="w-2 h-2 rounded-full bg-indigo-500 animate-pulse"></div>
-          <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">{isCompactMode ? 'Floating Mode' : 'ZenNote AI'}</span>
+    <div className={`flex h-screen transition-all duration-700 bg-slate-900 text-slate-100 overflow-hidden ${isCompactMode ? 'w-full rounded-none border-none' : 'w-full rounded-xl border border-white/10'} backdrop-blur-xl relative`}>
+      <DragHandle />
+      
+      <div className="absolute top-0 left-0 right-0 h-12 flex justify-between items-center px-4 z-50 bg-slate-950/40 border-b border-white/5">
+        <div className="flex items-center gap-2 pt-2">
+          <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></div>
+          <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Active Companion</span>
         </div>
-
-        {!isCompactMode && (
-          <div className="flex-1 max-w-md px-4 pointer-events-auto">
-            <div className="relative group">
-              <input
-                type="text"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Global search across notes & library..."
-                className="block w-full pl-10 pr-10 py-1.5 bg-slate-800/50 border border-white/10 rounded-full text-xs text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/30 transition-all"
-              />
-              <div className="absolute inset-y-0 left-0 pl-3 flex items-center"><svg className="h-3.5 w-3.5 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg></div>
-            </div>
-          </div>
-        )}
-
-        <div className="flex space-x-2 pointer-events-auto items-center">
-          <button onClick={() => setIsCompactMode(!isCompactMode)} className={`p-1 rounded-md transition-colors ${isCompactMode ? 'text-indigo-400 bg-indigo-500/10' : 'text-slate-500 hover:text-white'}`} title="Toggle Floating Mode">
-            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>
-          </button>
-          <button onClick={() => setIsMinimized(true)} className="w-3 h-3 rounded-full bg-yellow-500/80 hover:bg-yellow-400" />
-          <button className="w-3 h-3 rounded-full bg-red-500/80" />
+        <div className="flex space-x-2 items-center pt-2">
+           <button onClick={() => setIsMinimized(true)} className="w-3 h-3 rounded-full bg-yellow-500/80 hover:bg-yellow-400 transition-colors" />
+           <button onClick={() => { if(window.close) window.close(); }} className="w-3 h-3 rounded-full bg-red-500/80 hover:bg-red-400 transition-colors" />
         </div>
       </div>
 
-      <Sidebar activeView={activeView} setActiveView={setActiveView} compact={isCompactMode} />
+      <Sidebar activeView={activeView} setActiveView={setActiveView} compact={true} />
 
-      <main className={`flex-1 overflow-y-auto pt-16 pb-6 px-6 relative custom-scrollbar`}>
-        {searchQuery.trim() && !isCompactMode ? (
-          <div className="animate-in fade-in slide-in-from-bottom-4 duration-300 space-y-8 max-w-4xl mx-auto">
-            <header className="flex items-center justify-between border-b border-white/5 pb-4">
-              <div>
-                <h2 className="text-2xl font-bold">Search Vault</h2>
-                <p className="text-slate-400 text-sm">Found {filteredResults.notes.length + filteredResults.books.length} matches for "<span className="text-indigo-400">{searchQuery}</span>"</p>
-              </div>
-              <button onClick={() => setSearchQuery('')} className="text-xs text-slate-500 border border-white/5 px-3 py-1.5 rounded-lg hover:bg-slate-800 transition-all font-bold uppercase">Clear Results</button>
-            </header>
-            
-            <div className="grid gap-6">
-              {filteredResults.notes.length > 0 && (
-                <section className="space-y-3">
-                  <h3 className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Clippings ({filteredResults.notes.length})</h3>
-                  {filteredResults.notes.map(note => (
-                    <div key={note.id} className="bg-slate-800/30 border border-white/5 p-4 rounded-xl">
-                      <p className="text-sm text-slate-300 leading-relaxed"><HighlightText text={note.content} query={searchQuery} /></p>
-                    </div>
-                  ))}
-                </section>
-              )}
-              {filteredResults.books.length > 0 && (
-                <section className="space-y-3">
-                  <h3 className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Library ({filteredResults.books.length})</h3>
-                  {filteredResults.books.map(book => (
-                    <div key={book.id} onClick={() => {setActiveView(ViewMode.READER); setSearchQuery('');}} className="bg-slate-800/30 border border-white/5 p-4 rounded-xl flex items-center gap-4 cursor-pointer hover:bg-indigo-500/5 transition-colors">
-                      <div className="w-10 h-10 bg-slate-900 rounded-lg flex items-center justify-center text-xl">{book.type === 'video' ? '🎥' : '📄'}</div>
-                      <div>
-                        <h4 className="font-bold text-sm"><HighlightText text={book.title} query={searchQuery} /></h4>
-                        <p className="text-[10px] text-slate-500 uppercase font-bold">{book.type}</p>
-                      </div>
-                    </div>
-                  ))}
-                </section>
-              )}
-              {filteredResults.notes.length === 0 && filteredResults.books.length === 0 && (
-                <div className="text-center py-20 text-slate-500 italic">No matches in your vault.</div>
-              )}
-            </div>
-          </div>
-        ) : (
+      <main className="flex-1 overflow-y-auto pt-16 pb-6 px-4 relative custom-scrollbar bg-[#0f172a]">
           <>
-            {activeView === ViewMode.NOTES && (
-              <NoteView notes={notes} onAddNote={addNote} setNotes={setNotes} onToggleStyle={toggleNoteStyle} onUndo={undoNotes} onRedo={redoNotes} canUndo={pastNotes.length > 0} canRedo={futureNotes.length > 0} />
-            )}
-            {activeView === ViewMode.READER && (
-              <ReaderView books={books} setBooks={setBooks} />
-            )}
-            {activeView === ViewMode.STUDIO && (
-              <StudioView onSaveToLibrary={addBook} onSaveNote={addNote} />
-            )}
-            {activeView === ViewMode.PROGRESS && (
-              <ProgressView checkIns={checkIns} toggleCheckIn={toggleCheckIn} />
-            )}
+            {activeView === ViewMode.NOTES && <NoteView notes={notes} onAddNote={addNote} setNotes={setNotes} onUndo={undoNotes} onRedo={redoNotes} canUndo={pastNotes.length > 0} canRedo={futureNotes.length > 0} />}
+            {activeView === ViewMode.READER && <ReaderView books={books} setBooks={setBooks} />}
+            {activeView === ViewMode.STUDIO && <StudioView onSaveToLibrary={addBook} onSaveNote={addNote} />}
+            {activeView === ViewMode.PROGRESS && <ProgressView checkIns={checkIns} toggleCheckIn={toggleCheckIn} />}
           </>
-        )}
       </main>
     </div>
   );

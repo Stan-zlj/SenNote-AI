@@ -1,76 +1,76 @@
 
 import { GoogleGenAI, Type, Modality } from "@google/genai";
+import { AspectRatio } from "../types";
 
+// Helper to get a fresh AI client with the latest API key
 const getAIClient = () => {
   return new GoogleGenAI({ apiKey: process.env.API_KEY });
 };
 
-// Simple Flash-Lite query for speed
+// Recommended model for Basic Text Tasks like simple queries
 export const quickQuery = async (prompt: string) => {
   const ai = getAIClient();
   const response = await ai.models.generateContent({
-    model: 'gemini-flash-lite-latest',
+    model: 'gemini-3-flash-preview',
     contents: prompt,
   });
   return response.text;
 };
 
-// Translation function
+// Recommended model for Basic Text Tasks like translation
 export const translateText = async (text: string, targetLang: string = "Chinese") => {
   const ai = getAIClient();
   const prompt = `Translate the following text into ${targetLang}. 
   If the text is already in ${targetLang}, translate it into English instead.
-  Maintain the original formatting and tone. 
-  Text to translate: "${text}"`;
+  Maintain formatting. Text: "${text}"`;
   
   const response = await ai.models.generateContent({
-    model: 'gemini-flash-lite-latest',
+    model: 'gemini-3-flash-preview',
     contents: prompt,
   });
   return response.text;
 };
 
-// Complex analysis with Thinking Mode
+// Recommended model for Complex Text Tasks with reasoning
 export const deepAnalysis = async (contents: any[]) => {
   const ai = getAIClient();
   const response = await ai.models.generateContent({
     model: 'gemini-3-pro-preview',
     contents: { parts: contents },
-    config: {
-      thinkingConfig: { thinkingBudget: 32768 }
-    }
+    config: { thinkingConfig: { thinkingBudget: 32768 } }
   });
   return response.text;
 };
 
-// Image Generation
-export const generateStudyImage = async (prompt: string, aspectRatio: string = "1:1") => {
+// Using gemini-3-pro-image-preview for high-quality generation
+export const generateStudyImage = async (prompt: string, aspectRatio: AspectRatio = "1:1") => {
   const ai = getAIClient();
   const response = await ai.models.generateContent({
     model: 'gemini-3-pro-image-preview',
     contents: { parts: [{ text: prompt }] },
     config: {
-      imageConfig: { aspectRatio: aspectRatio as any, imageSize: "1K" }
+      imageConfig: { aspectRatio: aspectRatio, imageSize: "1K" }
     },
   });
-  
   for (const part of response.candidates[0].content.parts) {
     if (part.inlineData) return `data:image/png;base64,${part.inlineData.data}`;
   }
   return null;
 };
 
-// Image Editing (Nano Banana)
-export const editImage = async (base64Image: string, prompt: string) => {
+// Fix: Added editImage as required by StudioView.tsx
+export const editImage = async (imageUrl: string, prompt: string) => {
   const ai = getAIClient();
+  const [header, base64] = imageUrl.split(',');
+  const mimeType = header.split(':')[1].split(';')[0];
   const response = await ai.models.generateContent({
     model: 'gemini-2.5-flash-image',
     contents: {
       parts: [
-        { inlineData: { data: base64Image.split(',')[1], mimeType: 'image/png' } },
+        { inlineData: { data: base64, mimeType } },
         { text: prompt }
       ]
-    }
+    },
   });
   for (const part of response.candidates[0].content.parts) {
     if (part.inlineData) return `data:image/png;base64,${part.inlineData.data}`;
@@ -78,7 +78,22 @@ export const editImage = async (base64Image: string, prompt: string) => {
   return null;
 };
 
-// Video Generation
+// Fix: Added transcribeAudio as required by StudioView.tsx
+export const transcribeAudio = async (base64: string, mimeType: string) => {
+  const ai = getAIClient();
+  const response = await ai.models.generateContent({
+    model: 'gemini-3-flash-preview',
+    contents: {
+      parts: [
+        { inlineData: { data: base64, mimeType } },
+        { text: "Please transcribe this audio content exactly. Return only the transcription text." }
+      ]
+    },
+  });
+  return response.text;
+};
+
+// Recommended model for General Video Generation Tasks
 export const generateStudyVideo = async (prompt: string, isPortrait: boolean = false) => {
   const ai = getAIClient();
   let operation = await ai.models.generateVideos({
@@ -97,27 +112,13 @@ export const generateStudyVideo = async (prompt: string, isPortrait: boolean = f
   }
 
   const downloadLink = operation.response?.generatedVideos?.[0]?.video?.uri;
+  // Guidelines: Must append API key when fetching from the download link
   const res = await fetch(`${downloadLink}&key=${process.env.API_KEY}`);
   const blob = await res.blob();
   return URL.createObjectURL(blob);
 };
 
-// Audio Transcription
-export const transcribeAudio = async (base64Audio: string, mimeType: string = 'audio/webm') => {
-  const ai = getAIClient();
-  const response = await ai.models.generateContent({
-    model: 'gemini-3-flash-preview',
-    contents: {
-      parts: [
-        { inlineData: { data: base64Audio, mimeType } },
-        { text: "Transcribe this audio exactly. If it's a study note, format it clearly." }
-      ]
-    }
-  });
-  return response.text;
-};
-
-// TTS
+// Recommended model for Text-to-speech tasks
 export const speakText = async (text: string) => {
   const ai = getAIClient();
   const response = await ai.models.generateContent({
@@ -130,10 +131,8 @@ export const speakText = async (text: string) => {
       },
     },
   });
-
   const base64Audio = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
   if (!base64Audio) return;
-
   const ctx = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 });
   const audioData = decode(base64Audio);
   const buffer = await decodeAudioData(audioData, ctx, 24000, 1);
@@ -143,7 +142,6 @@ export const speakText = async (text: string) => {
   source.start();
 };
 
-// Utils for Audio
 function decode(base64: string) {
   const binaryString = atob(base64);
   const bytes = new Uint8Array(binaryString.length);

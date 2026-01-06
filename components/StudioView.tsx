@@ -29,36 +29,51 @@ const StudioView: React.FC<StudioViewProps> = ({ onSaveToLibrary, onSaveNote }) 
       const hasKey = await (window as any).aistudio.hasSelectedApiKey();
       if (!hasKey) {
         await (window as any).aistudio.openSelectKey();
+        // Instruction: Proceed assuming selection was successful (race condition mitigation)
       }
     }
   };
 
+  const wrapApiCall = async (fn: () => Promise<any>) => {
+    try {
+      await checkKeys();
+      return await fn();
+    } catch (error: any) {
+      if (error?.message?.includes("Requested entity was not found.")) {
+        // Instruction: Reset key selection state and prompt again
+        if (typeof (window as any).aistudio !== 'undefined') {
+          await (window as any).aistudio.openSelectKey();
+        }
+        return null;
+      }
+      throw error;
+    }
+  };
+
   const handleGenerateImage = async () => {
-    await checkKeys();
     setLoading(true);
     setResultUrl(null);
     setTranscription(null);
     setSaveStatus(null);
     try {
-      const url = await gemini.generateStudyImage(prompt, aspectRatio);
-      setResultUrl(url);
+      const url = await wrapApiCall(() => gemini.generateStudyImage(prompt, aspectRatio));
+      if (url) setResultUrl(url);
     } catch (error) {
       console.error("Image generation failed", error);
-      alert("Image generation failed. Ensure your API key is correctly configured.");
+      alert("Image generation failed. Ensure your API key is correctly configured with a paid project.");
     } finally {
       setLoading(false);
     }
   };
 
   const handleGenerateVideo = async () => {
-    await checkKeys();
     setLoading(true);
     setResultUrl(null);
     setTranscription(null);
     setSaveStatus(null);
     try {
-      const url = await gemini.generateStudyVideo(prompt, aspectRatio === "9:16");
-      setResultUrl(url);
+      const url = await wrapApiCall(() => gemini.generateStudyVideo(prompt, aspectRatio === "9:16"));
+      if (url) setResultUrl(url);
     } catch (error) {
       console.error("Video generation failed", error);
     } finally {
@@ -116,7 +131,7 @@ const StudioView: React.FC<StudioViewProps> = ({ onSaveToLibrary, onSaveNote }) 
     if (!resultUrl) return;
     setLoading(true);
     try {
-      const edited = await gemini.editImage(resultUrl, prompt);
+      const edited = await wrapApiCall(() => gemini.editImage(resultUrl, prompt));
       if (edited) setResultUrl(edited);
     } catch (error) {
       console.error("Image editing failed", error);
@@ -152,7 +167,7 @@ const StudioView: React.FC<StudioViewProps> = ({ onSaveToLibrary, onSaveNote }) 
     <div className="space-y-6">
       <header>
         <h2 className="text-2xl font-bold bg-gradient-to-r from-white to-slate-400 bg-clip-text text-transparent">Creative Studio</h2>
-        <p className="text-slate-400 text-sm">Generate visual & audio aids for your studies.</p>
+        <p className="text-slate-400 text-sm">Generate visual & audio aids for your studies. <a href="https://ai.google.dev/gemini-api/docs/billing" target="_blank" className="underline text-slate-500 hover:text-indigo-400 transition-colors">Billing Info</a></p>
       </header>
 
       <div className="flex bg-slate-800/40 p-1 rounded-xl w-fit">

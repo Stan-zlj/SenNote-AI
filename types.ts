@@ -39,7 +39,7 @@ export interface Book {
   progress: number; // 0 to 100
   type: 'pdf' | 'video' | 'image';
   mediaUrl?: string;
-  annotations?: Record<number, PDFAnnotation>; // Map of page number to annotations
+  annotations?: Record<number, PDFAnnotation>;
 }
 
 export enum ViewMode {
@@ -50,4 +50,4 @@ export enum ViewMode {
   SETTINGS = 'settings'
 }
 
-export type AspectRatio = "1:1" | "2:3" | "3:2" | "3:4" | "4:3" | "9:16" | "16:9" | "21:9";
+export type AspectRatio = "1:1" | "3:4" | "4:3" | "9:16" | "16:9";
