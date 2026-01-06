@@ -7,7 +7,8 @@ let tray = null;
 let lastClipboardText = "";
 let isQuitting = false;
 
-// 解决部分系统硬件灯不亮的底层配置
+// 解决硬件访问权限和自动播放政策
+app.commandLine.appendSwitch('use-fake-ui-for-media-stream'); // 自动跳过权限确认
 app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
 
 const gotTheLock = app.requestSingleInstanceLock();
@@ -61,14 +62,22 @@ if (!gotTheLock) {
       }
     });
 
-    // 强化权限处理：必须对 defaultSession 生效
+    // 强化权限处理
     const ses = session.defaultSession;
+    
+    // 处理通用权限请求
     ses.setPermissionRequestHandler((webContents, permission, callback) => {
-      callback(true); // 自动允许所有权限请求（摄像头、麦克风等）
+      const allowed = ['media', 'audioCapture', 'videoCapture', 'notifications', 'midiSysex', 'openExternal'];
+      if (allowed.includes(permission)) {
+        callback(true);
+      } else {
+        callback(false);
+      }
     });
 
-    ses.setPermissionCheckHandler((webContents, permission) => {
-      return true; // 自动通过权限检查
+    // 处理具体设备权限 (摄像头、麦克风)
+    ses.setDevicePermissionHandler((details) => {
+      return true; // 允许所有硬件设备连接
     });
 
     if (app.isPackaged) {
