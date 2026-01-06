@@ -7,6 +7,9 @@ let tray = null;
 let lastClipboardText = "";
 let isQuitting = false;
 
+// 解决部分系统硬件灯不亮的底层配置
+app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
+
 const gotTheLock = app.requestSingleInstanceLock();
 if (!gotTheLock) {
   app.quit();
@@ -54,24 +57,18 @@ if (!gotTheLock) {
         nodeIntegration: true,
         contextIsolation: false,
         webSecurity: false,
-        // 确保启用多媒体权限支持
-        autoplayPolicy: 'no-user-gesture-required',
+        backgroundThrottling: false,
       }
     });
 
-    // 核心权限处理
-    const currentSession = mainWindow.webContents.session;
-    
-    // 处理权限请求
-    currentSession.setPermissionRequestHandler((webContents, permission, callback) => {
-      const allowed = ['media', 'audioCapture', 'videoCapture', 'notifications', 'midiSysex'];
-      callback(allowed.includes(permission));
+    // 强化权限处理：必须对 defaultSession 生效
+    const ses = session.defaultSession;
+    ses.setPermissionRequestHandler((webContents, permission, callback) => {
+      callback(true); // 自动允许所有权限请求（摄像头、麦克风等）
     });
 
-    // 处理权限检查 (部分 Electron 版本需要)
-    currentSession.setPermissionCheckHandler((webContents, permission) => {
-      const allowed = ['media', 'audioCapture', 'videoCapture'];
-      return allowed.includes(permission);
+    ses.setPermissionCheckHandler((webContents, permission) => {
+      return true; // 自动通过权限检查
     });
 
     if (app.isPackaged) {
