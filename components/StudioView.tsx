@@ -165,6 +165,7 @@ const StudioView: React.FC<StudioViewProps> = ({ onSaveToLibrary, onSaveNote }) 
               setTranscription(null);
               setSaveStatus(null); 
             }}
+            title={`Switch to ${tab} creation mode`}
             className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${activeTab === tab ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-400 hover:text-white'}`}
           >
             {tab.toUpperCase()}
@@ -180,6 +181,7 @@ const StudioView: React.FC<StudioViewProps> = ({ onSaveToLibrary, onSaveNote }) 
               <textarea
                 value={prompt}
                 onChange={(e) => setPrompt(e.target.value)}
+                title="Enter a detailed description for the AI to generate or edit content"
                 placeholder={activeTab === 'image' ? "A complex diagram showing photosynthesis..." : "A slow pan across a peaceful library..."}
                 className="w-full bg-slate-900/50 border border-white/10 rounded-xl p-4 text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/50 transition-all h-24"
               />
@@ -193,6 +195,7 @@ const StudioView: React.FC<StudioViewProps> = ({ onSaveToLibrary, onSaveNote }) 
                     <button
                       key={r}
                       onClick={() => setAspectRatio(r)}
+                      title={`Set aspect ratio to ${r}`}
                       className={`px-3 py-1 rounded-lg border text-[10px] transition-all font-bold ${aspectRatio === r ? 'bg-indigo-500/20 border-indigo-500 text-indigo-400' : 'bg-slate-900 border-white/5 text-slate-500 hover:text-slate-300'}`}
                     >
                       {r}
@@ -203,11 +206,12 @@ const StudioView: React.FC<StudioViewProps> = ({ onSaveToLibrary, onSaveNote }) 
               
               <div className="flex gap-2 self-end">
                 {resultUrl && activeTab === 'image' && (
-                  <button onClick={handleEditImage} className="text-indigo-400 text-xs font-bold hover:underline px-2">Edit with prompt</button>
+                  <button onClick={handleEditImage} title="Apply prompt to edit the current image" className="text-indigo-400 text-xs font-bold hover:underline px-2">Edit with prompt</button>
                 )}
                 <button
                   disabled={loading || !prompt}
                   onClick={activeTab === 'image' ? handleGenerateImage : handleGenerateVideo}
+                  title={`Trigger AI to generate ${activeTab}`}
                   className="bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-2 rounded-xl text-sm font-bold shadow-lg shadow-indigo-600/20 transition-all disabled:opacity-50 disabled:grayscale flex items-center gap-2"
                 >
                   {loading && <div className="w-4 h-4 border-2 border-white/20 border-t-white rounded-full animate-spin"></div>}
@@ -221,13 +225,14 @@ const StudioView: React.FC<StudioViewProps> = ({ onSaveToLibrary, onSaveNote }) 
             <button
               onClick={isRecording ? stopRecording : startRecording}
               disabled={loading}
+              title={isRecording ? "Stop recording study memo" : "Start recording study memo"}
               className={`w-20 h-20 rounded-full flex items-center justify-center transition-all ${isRecording ? 'bg-red-500 animate-pulse' : 'bg-indigo-600 hover:scale-105'} ${loading ? 'opacity-50 grayscale' : ''}`}
             >
               {isRecording ? (
                 <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 10a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1v-4z" /></svg>
               ) : (
                 <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3-3z" />
                 </svg>
               )}
             </button>
@@ -251,6 +256,7 @@ const StudioView: React.FC<StudioViewProps> = ({ onSaveToLibrary, onSaveNote }) 
               <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest ml-1">{saveStatus || "Permanent archive available"}</span>
               <button 
                 onClick={handleSaveToLibrary}
+                title="Save this creation to your library"
                 className="bg-emerald-600 hover:bg-emerald-700 text-white px-5 py-2 rounded-lg text-xs font-bold transition-all shadow-lg flex items-center gap-2"
               >
                 <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -276,6 +282,7 @@ const StudioView: React.FC<StudioViewProps> = ({ onSaveToLibrary, onSaveNote }) 
               <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest ml-1">{saveStatus || "Permanent archive available"}</span>
               <button 
                 onClick={handleSaveTranscription}
+                title="Save this transcribed text as a note clipping"
                 className="bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-2 rounded-lg text-xs font-bold transition-all shadow-lg flex items-center gap-2"
               >
                 <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">

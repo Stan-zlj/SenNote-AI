@@ -1,0 +1,18 @@
+
+{
+  "short_name": "ZenNote",
+  "name": "ZenNote AI Learning Companion",
+  "icons": [
+    {
+      "src": "https://cdn-icons-png.flaticon.com/512/566/566437.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "start_url": ".",
+  "display": "standalone",
+  "theme_color": "#0f172a",
+  "background_color": "#0f172a",
+  "description": "A floating AI-powered study companion and clippings vault."
+}

@@ -178,7 +178,10 @@ const ReaderView: React.FC<ReaderViewProps> = ({ books, setBooks }) => {
               <h2 className="text-2xl font-bold bg-gradient-to-r from-white to-slate-400 bg-clip-text text-transparent">Library</h2>
               <p className="text-slate-400 text-sm">PDFs, Images, and Videos.</p>
             </div>
-            <label className={`cursor-pointer bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-xl text-sm font-medium transition-all shadow-lg flex items-center gap-2 ${isUploading ? 'opacity-50 pointer-events-none' : ''}`}>
+            <label 
+              title="Add a new document, image, or video"
+              className={`cursor-pointer bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-xl text-sm font-medium transition-all shadow-lg flex items-center gap-2 ${isUploading ? 'opacity-50 pointer-events-none' : ''}`}
+            >
               <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
               </svg>
@@ -215,7 +218,11 @@ const ReaderView: React.FC<ReaderViewProps> = ({ books, setBooks }) => {
       ) : (
         <div className="animate-in slide-in-from-right duration-500 flex flex-col h-full">
           <div className="flex justify-between items-center mb-4">
-            <button onClick={resetActiveBook} className="text-slate-400 hover:text-white flex items-center gap-1 text-sm font-medium transition-colors">
+            <button 
+              onClick={resetActiveBook} 
+              title="Return to library view"
+              className="text-slate-400 hover:text-white flex items-center gap-1 text-sm font-medium transition-colors"
+            >
               <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
               Back to Library
             </button>
@@ -223,7 +230,7 @@ const ReaderView: React.FC<ReaderViewProps> = ({ books, setBooks }) => {
               <button 
                 onClick={() => setIsTheaterMode(!isTheaterMode)} 
                 className={`p-2 rounded-lg text-xs font-bold transition-all ${isTheaterMode ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400 hover:text-white'}`}
-                title="Toggle Theater Mode"
+                title={isTheaterMode ? "Exit theater mode" : "Expand viewer for focused study"}
               >
                 {isTheaterMode ? 'Exit Theater' : 'Theater Mode'}
               </button>
@@ -237,9 +244,21 @@ const ReaderView: React.FC<ReaderViewProps> = ({ books, setBooks }) => {
               <div className="flex items-center gap-3">
                 {activeBook.type === 'image' && (
                   <div className="flex items-center bg-slate-900 rounded-lg p-1 border border-white/5">
-                    <button onClick={() => setZoomLevel(Math.max(0.5, zoomLevel - 0.25))} className="p-1 text-slate-400 hover:text-white"><svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 12H4" /></svg></button>
+                    <button 
+                      onClick={() => setZoomLevel(Math.max(0.5, zoomLevel - 0.25))} 
+                      title="Zoom Out"
+                      className="p-1 text-slate-400 hover:text-white"
+                    >
+                      <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 12H4" /></svg>
+                    </button>
                     <span className="text-[10px] text-slate-500 w-10 text-center font-mono">{Math.round(zoomLevel * 100)}%</span>
-                    <button onClick={() => setZoomLevel(Math.min(3, zoomLevel + 0.25))} className="p-1 text-slate-400 hover:text-white"><svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg></button>
+                    <button 
+                      onClick={() => setZoomLevel(Math.min(3, zoomLevel + 0.25))} 
+                      title="Zoom In"
+                      className="p-1 text-slate-400 hover:text-white"
+                    >
+                      <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
+                    </button>
                   </div>
                 )}
               </div>
@@ -275,6 +294,7 @@ const ReaderView: React.FC<ReaderViewProps> = ({ books, setBooks }) => {
                       onClick={togglePlay}
                     >
                       <button 
+                        title={isPlaying ? "Pause video" : "Play video"}
                         className="w-16 h-16 bg-indigo-600/80 backdrop-blur-md rounded-full flex items-center justify-center text-white transition-transform hover:scale-110 active:scale-95 pointer-events-auto"
                       >
                         {isPlaying ? (
@@ -298,13 +318,14 @@ const ReaderView: React.FC<ReaderViewProps> = ({ books, setBooks }) => {
                         max={duration || 100}
                         value={currentTime}
                         onChange={handleSeek}
+                        title="Seek progress"
                         className="flex-1 accent-indigo-500 h-1 rounded-lg bg-white/20 appearance-none cursor-pointer"
                       />
                     </div>
 
                     <div className="flex items-center justify-between text-white text-xs font-medium">
                       <div className="flex items-center gap-4">
-                        <button onClick={togglePlay} className="hover:text-indigo-400 transition-colors">
+                        <button onClick={togglePlay} title={isPlaying ? "Pause" : "Play"} className="hover:text-indigo-400 transition-colors">
                           {isPlaying ? (
                             <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zM7 8a1 1 0 012 0v4a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v4a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd" /></svg>
                           ) : (
@@ -313,7 +334,7 @@ const ReaderView: React.FC<ReaderViewProps> = ({ books, setBooks }) => {
                         </button>
                         
                         <div className="flex items-center gap-2">
-                          <button onClick={toggleMute} className="hover:text-indigo-400 transition-colors">
+                          <button onClick={toggleMute} title={isMuted || volume === 0 ? "Unmute" : "Mute"} className="hover:text-indigo-400 transition-colors">
                             {isMuted || volume === 0 ? (
                               <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M9.383 3.076A1 1 0 0110 4v12a1 1 0 01-1.707.707L4.586 13H2a1 1 0 01-1-1V8a1 1 0 011-1h2.586l3.707-3.707a1 1 0 011.09-.217zM12.293 7.293a1 1 0 011.414 0L15 8.586l1.293-1.293a1 1 0 111.414 1.414L16.414 10l1.293 1.293a1 1 0 01-1.414 1.414L15 11.414l-1.293 1.293a1 1 0 01-1.414-1.414L13.586 10l-1.293-1.293a1 1 0 010-1.414z" clipRule="evenodd" /></svg>
                             ) : (
@@ -327,6 +348,7 @@ const ReaderView: React.FC<ReaderViewProps> = ({ books, setBooks }) => {
                             step="0.05"
                             value={volume}
                             onChange={handleVolumeChange}
+                            title="Adjust volume"
                             className="w-16 accent-indigo-500 h-1 rounded-lg bg-white/20 appearance-none cursor-pointer"
                           />
                         </div>
@@ -336,7 +358,7 @@ const ReaderView: React.FC<ReaderViewProps> = ({ books, setBooks }) => {
                         </span>
                       </div>
 
-                      <button onClick={toggleFullscreen} className="hover:text-indigo-400 transition-colors">
+                      <button onClick={toggleFullscreen} title="Toggle fullscreen" className="hover:text-indigo-400 transition-colors">
                         <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" /></svg>
                       </button>
                     </div>
@@ -353,7 +375,7 @@ const ReaderView: React.FC<ReaderViewProps> = ({ books, setBooks }) => {
                   </div>
                   <h3 className="text-xl font-bold text-white mb-2">Document Preview</h3>
                   <p className="text-slate-400 text-sm max-w-xs mb-6">PDF interactive viewing is optimized for AI analysis. Use the sidebar tool to extract data.</p>
-                  <button className="px-6 py-2 bg-slate-800 text-slate-300 rounded-xl text-sm hover:bg-slate-700 transition-all border border-white/5">Open Externally</button>
+                  <button title="Open this file in an external viewer" className="px-6 py-2 bg-slate-800 text-slate-300 rounded-xl text-sm hover:bg-slate-700 transition-all border border-white/5">Open Externally</button>
                 </div>
               )}
             </div>
@@ -383,6 +405,7 @@ const ReaderView: React.FC<ReaderViewProps> = ({ books, setBooks }) => {
                       <button 
                         onClick={handleAnalyzeMedia} 
                         disabled={isReading} 
+                        title="Query AI about this media"
                         className="bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-3 rounded-xl text-sm font-bold transition-all disabled:opacity-50 shadow-lg flex items-center gap-2"
                       >
                         {isReading ? (

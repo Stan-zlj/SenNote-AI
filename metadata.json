@@ -1,5 +1,5 @@
 {
-  "name": "ZenNote AI - Floating Learning Companion",
+  "name": "AI for Floating Learning Companion",
   "description": "A sleek, floating note-taking and learning tracker. Features daily check-ins, AI-powered reading assistance for snippets and documents, and study progress visualization.",
   "requestFramePermissions": [
     "camera",
