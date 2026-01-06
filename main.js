@@ -1,7 +1,6 @@
 
 const { app, BrowserWindow, clipboard, ipcMain, Tray, Menu, nativeImage, session } = require('electron');
 const path = require('path');
-const fs = require('fs');
 
 let mainWindow = null;
 let tray = null;
@@ -55,17 +54,24 @@ if (!gotTheLock) {
         nodeIntegration: true,
         contextIsolation: false,
         webSecurity: false,
+        // 确保启用多媒体权限支持
+        autoplayPolicy: 'no-user-gesture-required',
       }
     });
 
-    // 关键修复：处理权限请求（摄像头/麦克风）
-    session.defaultSession.setPermissionRequestHandler((webContents, permission, callback) => {
-      const allowedPermissions = ['media', 'audioCapture', 'videoCapture', 'notifications'];
-      if (allowedPermissions.includes(permission)) {
-        callback(true);
-      } else {
-        callback(false);
-      }
+    // 核心权限处理
+    const currentSession = mainWindow.webContents.session;
+    
+    // 处理权限请求
+    currentSession.setPermissionRequestHandler((webContents, permission, callback) => {
+      const allowed = ['media', 'audioCapture', 'videoCapture', 'notifications', 'midiSysex'];
+      callback(allowed.includes(permission));
+    });
+
+    // 处理权限检查 (部分 Electron 版本需要)
+    currentSession.setPermissionCheckHandler((webContents, permission) => {
+      const allowed = ['media', 'audioCapture', 'videoCapture'];
+      return allowed.includes(permission);
     });
 
     if (app.isPackaged) {

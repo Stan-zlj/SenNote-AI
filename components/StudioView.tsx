@@ -6,6 +6,7 @@ const StudioView: React.FC = () => {
   const [mediaBlob, setMediaBlob] = useState<string | null>(null);
   const [recording, setRecording] = useState(false);
   const [isInitializing, setIsInitializing] = useState(false);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
   
   const videoRef = useRef<HTMLVideoElement>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
@@ -16,8 +17,11 @@ const StudioView: React.FC = () => {
   useEffect(() => {
     if (activeTab !== 'image') return;
     const handlePaste = (e: ClipboardEvent) => {
-      const item = e.clipboardData?.items[0];
-      if (item?.type.includes('image')) {
+      // Fix: DataTransferItemList is not an array, convert to array to use .find()
+      const items = e.clipboardData?.items;
+      if (!items) return;
+      const item = Array.from(items).find(i => i.type.includes('image'));
+      if (item) {
         const blob = item.getAsFile();
         if (blob) setMediaBlob(URL.createObjectURL(blob));
       }
@@ -25,13 +29,6 @@ const StudioView: React.FC = () => {
     window.addEventListener('paste', handlePaste);
     return () => window.removeEventListener('paste', handlePaste);
   }, [activeTab]);
-
-  // 自动绑定预览流
-  useEffect(() => {
-    if (activeTab === 'video' && recording && streamRef.current && videoRef.current) {
-      videoRef.current.srcObject = streamRef.current;
-    }
-  }, [recording, activeTab]);
 
   const getSupportedMimeType = (type: 'video' | 'audio') => {
     const types = type === 'video' 
@@ -42,16 +39,44 @@ const StudioView: React.FC = () => {
 
   const startMedia = async (type: 'video' | 'audio') => {
     setIsInitializing(true);
+    setErrorMsg(null);
     setMediaBlob(null);
     chunksRef.current = [];
 
     try {
       const constraints = type === 'video' 
-        ? { video: { width: 1280, height: 720 }, audio: true }
+        ? { 
+            video: { 
+              width: { ideal: 1280 }, 
+              height: { ideal: 720 },
+              facingMode: "user"
+            }, 
+            audio: true 
+          }
         : { audio: true };
 
+      console.log("Requesting hardware with constraints:", constraints);
       const stream = await navigator.mediaDevices.getUserMedia(constraints);
       streamRef.current = stream;
+
+      // 验证轨道是否处于活动状态
+      const tracks = stream.getTracks();
+      console.log(`Hardware started. Active tracks: ${tracks.length}`, tracks.map(t => t.label));
+      
+      if (tracks.length === 0) {
+        throw new Error("未能获取到任何有效的媒体轨道。");
+      }
+
+      // 如果是视频模式，立即绑定预览
+      if (type === 'video' && videoRef.current) {
+        videoRef.current.srcObject = stream;
+        try {
+          await videoRef.current.play();
+          console.log("Video preview started successfully.");
+        } catch (playErr) {
+          console.warn("Auto-play failed, usually requires interaction.", playErr);
+        }
+      }
 
       const mimeType = getSupportedMimeType(type);
       const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : {});
@@ -61,19 +86,31 @@ const StudioView: React.FC = () => {
       };
 
       recorder.onstop = () => {
-        const blob = new Blob(chunksRef.current, { type: mimeType || (type === 'video' ? 'video/webm' : 'audio/webm') });
-        const url = URL.createObjectURL(blob);
+        const finalBlob = new Blob(chunksRef.current, { 
+          type: mimeType || (type === 'video' ? 'video/webm' : 'audio/webm') 
+        });
+        const url = URL.createObjectURL(finalBlob);
         setMediaBlob(url);
-        // 彻底关闭硬件流
-        stream.getTracks().forEach(track => track.stop());
+        
+        // 彻底释放硬件资源
+        stream.getTracks().forEach(track => {
+          track.stop();
+          console.log(`Track ${track.label} stopped.`);
+        });
+        streamRef.current = null;
       };
 
       recorderRef.current = recorder;
-      recorder.start(100); // 每100ms收集一次数据
+      recorder.start(500); // 增大切片间隔以提高稳定性
       setRecording(true);
-    } catch (err) {
-      console.error("Hardware access error:", err);
-      alert("无法访问硬件。请检查摄像头/麦克风权限或是否被占用。");
+    } catch (err: any) {
+      console.error("Hardware access failed:", err);
+      let friendlyMsg = "硬件启动失败";
+      if (err.name === 'NotAllowedError') friendlyMsg = "权限被拒绝，请检查系统隐私设置。";
+      else if (err.name === 'NotFoundError') friendlyMsg = "未找到可用的摄像头或麦克风设备。";
+      else if (err.name === 'NotReadableError') friendlyMsg = "设备被其他程序占用，无法启动。";
+      
+      setErrorMsg(`${friendlyMsg} (${err.message})`);
     } finally {
       setIsInitializing(false);
     }
@@ -84,6 +121,9 @@ const StudioView: React.FC = () => {
       recorderRef.current.stop();
     }
     setRecording(false);
+    if (videoRef.current) {
+      videoRef.current.srcObject = null;
+    }
   };
 
   const downloadMedia = () => {
@@ -109,7 +149,7 @@ const StudioView: React.FC = () => {
           <button
             key={tab}
             disabled={recording}
-            onClick={() => { setActiveTab(tab); setMediaBlob(null); }}
+            onClick={() => { setActiveTab(tab); setMediaBlob(null); setErrorMsg(null); }}
             className={`px-6 py-2 rounded-xl text-[10px] font-black uppercase tracking-tighter transition-all ${activeTab === tab ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-500 hover:text-slate-300 disabled:opacity-30'}`}
           >
             {tab === 'image' ? '图片' : tab === 'video' ? '视频' : '语音'}
@@ -124,11 +164,19 @@ const StudioView: React.FC = () => {
         {isInitializing && (
           <div className="flex flex-col items-center gap-3">
             <div className="w-8 h-8 border-4 border-indigo-500/30 border-t-indigo-500 rounded-full animate-spin" />
-            <p className="text-[10px] text-indigo-400 font-bold uppercase tracking-widest">正在启动硬件...</p>
+            <p className="text-[10px] text-indigo-400 font-bold uppercase tracking-widest">硬件握手中...</p>
           </div>
         )}
 
-        {!isInitializing && activeTab === 'image' && (
+        {errorMsg && (
+          <div className="p-8 text-center max-w-xs">
+            <div className="w-12 h-12 bg-red-500/10 text-red-500 rounded-full flex items-center justify-center mx-auto mb-4 text-xl">⚠️</div>
+            <p className="text-xs text-red-400 font-bold leading-relaxed">{errorMsg}</p>
+            <button onClick={() => startMedia(activeTab as any)} className="mt-4 text-[10px] text-slate-400 underline uppercase font-black">重试</button>
+          </div>
+        )}
+
+        {!isInitializing && !errorMsg && activeTab === 'image' && (
           mediaBlob ? (
             <img src={mediaBlob} className="max-h-full object-contain p-4" alt="Pasted" />
           ) : (
@@ -143,9 +191,9 @@ const StudioView: React.FC = () => {
           )
         )}
 
-        {!isInitializing && activeTab === 'video' && (
+        {!isInitializing && !errorMsg && activeTab === 'video' && (
           recording ? (
-            <video ref={videoRef} autoPlay muted className="w-full h-full object-cover mirror" />
+            <video ref={videoRef} autoPlay muted playsInline className="w-full h-full object-cover mirror" />
           ) : (
             mediaBlob ? (
               <video src={mediaBlob} controls className="w-full h-full object-contain" />
@@ -155,20 +203,20 @@ const StudioView: React.FC = () => {
           )
         )}
 
-        {!isInitializing && activeTab === 'audio' && (
+        {!isInitializing && !errorMsg && activeTab === 'audio' && (
           recording ? (
             <div className="flex flex-col items-center gap-6">
                <div className="relative">
                  <div className="w-20 h-20 bg-indigo-500/20 rounded-full animate-ping absolute inset-0" />
                  <div className="w-20 h-20 bg-indigo-600 rounded-full flex items-center justify-center text-2xl relative z-10 shadow-indigo-500/50 shadow-2xl">🎙️</div>
                </div>
-               <p className="text-indigo-400 font-black uppercase tracking-[0.3em] text-xs animate-pulse">正在录音</p>
+               <p className="text-indigo-400 font-black uppercase tracking-[0.3em] text-xs animate-pulse">正在录制音频...</p>
             </div>
           ) : (
             mediaBlob ? (
               <div className="w-full max-w-xs px-6 py-10 bg-slate-900/50 rounded-3xl border border-white/5 flex flex-col items-center gap-4">
                 <audio src={mediaBlob} controls className="w-full" />
-                <span className="text-[10px] text-slate-500 uppercase font-bold">预览录音文件</span>
+                <span className="text-[10px] text-slate-500 uppercase font-bold">预览录音</span>
               </div>
             ) : (
               <button onClick={() => startMedia('audio')} className="bg-indigo-600 hover:bg-indigo-500 text-white px-8 py-4 rounded-3xl font-black text-xs uppercase tracking-widest shadow-xl transition-all active:scale-95">开始录音</button>
@@ -187,11 +235,11 @@ const StudioView: React.FC = () => {
         <div className="flex justify-between items-center bg-indigo-600/5 p-4 rounded-2xl border border-indigo-500/20 animate-in fade-in slide-in-from-top-1">
           <div className="flex items-center gap-3">
              <div className="w-8 h-8 bg-indigo-600/20 rounded-xl flex items-center justify-center">✅</div>
-             <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">文件已生成</span>
+             <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">录制完成</span>
           </div>
           <div className="flex gap-4">
-             <button onClick={() => setMediaBlob(null)} className="text-[10px] font-bold text-slate-500 hover:text-white uppercase transition-colors">重新录制</button>
-             <button onClick={downloadMedia} className="bg-indigo-600 hover:bg-indigo-500 text-white px-6 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest shadow-lg transition-all">保存本地</button>
+             <button onClick={() => { setMediaBlob(null); setErrorMsg(null); }} className="text-[10px] font-bold text-slate-500 hover:text-white uppercase transition-colors">舍弃</button>
+             <button onClick={downloadMedia} className="bg-indigo-600 hover:bg-indigo-500 text-white px-6 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest shadow-lg transition-all">保存到本地</button>
           </div>
         </div>
       )}
