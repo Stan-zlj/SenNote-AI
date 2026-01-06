@@ -8,20 +8,21 @@
   "scripts": {
     "dev": "vite",
     "start": "electron .",
-    "build": "vite build && electron-builder"
+    "build": "vite build && electron-builder",
+    "build:fast": "vite build && electron-builder --win dir"
   },
   "devDependencies": {
-    "electron": "^28.0.0",
-    "electron-builder": "^24.9.1",
-    "vite": "^5.0.0",
-    "@vitejs/plugin-react": "^4.2.0",
-    "typescript": "^5.0.0"
+    "electron": "^28.3.3",
+    "electron-builder": "^24.13.3",
+    "vite": "^5.4.11",
+    "@vitejs/plugin-react": "^4.3.4",
+    "typescript": "^5.7.2"
   },
   "dependencies": {
-    "react": "^19.2.3",
-    "react-dom": "^19.2.3",
-    "recharts": "^3.6.0",
-    "@google/genai": "^1.34.0"
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "recharts": "^2.15.0",
+    "@google/genai": "^0.21.0"
   },
   "build": {
     "appId": "com.zennote.ai",
@@ -32,6 +33,7 @@
     },
     "win": {
       "target": [
+        "dir",
         "portable"
       ],
       "icon": "https://cdn-icons-png.flaticon.com/512/566/566437.png"
