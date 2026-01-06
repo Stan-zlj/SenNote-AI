@@ -12,7 +12,7 @@ function createWindow() {
     frame: false,
     alwaysOnTop: true,
     transparent: true,
-    backgroundColor: '#1e293b', // 即使没加载出来，也给个深色底色，不黑屏
+    backgroundColor: '#00000000', // 完全透明，由网页控制底色
     webPreferences: {
       nodeIntegration: true,
       contextIsolation: false
@@ -21,11 +21,9 @@ function createWindow() {
 
   const isDev = !app.isPackaged;
   if (isDev) {
-    // 自动重试加载，直到 Vite 服务器启动
     const loadURL = () => {
       mainWindow.loadURL('http://localhost:5173').catch(() => {
-        console.log("Vite 服务器未就绪，2秒后重试...");
-        setTimeout(loadURL, 2000);
+        setTimeout(loadURL, 1500);
       });
     };
     loadURL();
@@ -33,14 +31,18 @@ function createWindow() {
     mainWindow.loadFile(path.join(__dirname, 'dist/index.html'));
   }
 
-  // 窗口控制
+  // 设置开机自启动
+  app.setLoginItemSettings({
+    openAtLogin: true,
+    openAsHidden: false
+  });
+
   ipcMain.on('window-min', () => mainWindow.minimize());
   ipcMain.on('window-close', () => mainWindow.close());
 
-  // 剪贴板自动同步
   setInterval(() => {
     try {
-      const text = clipboard.readText();
+      const text = clipboard.readText().trim();
       if (text && text !== lastClipboardText) {
         lastClipboardText = text;
         if (mainWindow) {
