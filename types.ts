@@ -11,44 +11,31 @@ export interface Note {
   };
 }
 
-export interface DailyCheckIn {
-  date: string; // YYYY-MM-DD
-  status: boolean;
-  notes: string;
-}
-
-export interface PDFAnnotation {
-  page: number;
-  drawings: Array<{
-    points: Array<{ x: number, y: number }>;
-    color: string;
-    width: number;
-  }>;
-  notes: Array<{
-    id: string;
-    text: string;
-    x: number;
-    y: number;
-  }>;
-}
-
+// Fix: Added missing Book interface for ReaderView
 export interface Book {
   id: string;
   title: string;
   contentSnippet: string;
-  progress: number; // 0 to 100
-  type: 'pdf' | 'video' | 'image';
-  mediaUrl?: string;
-  annotations?: Record<number, PDFAnnotation>;
+  progress: number;
+  type: 'pdf' | 'image';
+  mediaUrl: string;
+}
+
+// Fix: Added missing DailyCheckIn interface for ProgressView
+export interface DailyCheckIn {
+  date: string;
+}
+
+export interface MindMapNode {
+  label: string;
+  children?: MindMapNode[];
 }
 
 export enum ViewMode {
   DASHBOARD = 'dashboard',
   NOTES = 'notes',
-  READER = 'reader',
   STUDIO = 'studio',
-  PROGRESS = 'progress',
-  SETTINGS = 'settings'
+  MINDMAP = 'mindmap'
 }
 
 export type AspectRatio = "1:1" | "3:4" | "4:3" | "9:16" | "16:9";
