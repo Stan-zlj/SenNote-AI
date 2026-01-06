@@ -3,6 +3,7 @@
   "name": "zen-note-ai",
   "version": "1.0.0",
   "description": "AI-powered floating study companion",
+  "author": "Stan",
   "main": "main.js",
   "scripts": {
     "dev": "vite",
@@ -24,15 +25,21 @@
   },
   "build": {
     "appId": "com.zennote.ai",
+    "productName": "ZenNoteAI",
+    "copyright": "Copyright © 2024 Stan",
     "directories": {
       "output": "dist_electron"
     },
     "win": {
-      "target": "portable"
+      "target": [
+        "portable"
+      ],
+      "icon": "https://cdn-icons-png.flaticon.com/512/566/566437.png"
     },
     "files": [
       "dist/**/*",
       "main.js"
-    ]
+    ],
+    "publish": null
   }
 }
