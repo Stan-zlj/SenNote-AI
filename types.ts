@@ -43,6 +43,7 @@ export interface Book {
 }
 
 export enum ViewMode {
+  DASHBOARD = 'dashboard',
   NOTES = 'notes',
   READER = 'reader',
   STUDIO = 'studio',
