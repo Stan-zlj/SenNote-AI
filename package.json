@@ -31,6 +31,9 @@
     "directories": {
       "output": "dist_electron"
     },
+    "electronDownload": {
+      "mirror": "https://npmmirror.com/mirrors/electron/"
+    },
     "win": {
       "target": [
         "dir",
