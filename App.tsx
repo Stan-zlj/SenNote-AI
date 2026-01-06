@@ -7,18 +7,23 @@ import StudioView from './components/StudioView';
 import MindMapView from './components/MindMapView';
 import DashboardView from './components/DashboardView';
 
+// 更加稳健的 IPC 获取方式
 const getIpc = () => {
   if (typeof window !== 'undefined' && (window as any).require) {
     try {
-      return (window as any).require('electron').ipcRenderer;
-    } catch (e) { return null; }
+      const electron = (window as any).require('electron');
+      return electron.ipcRenderer;
+    } catch (e) {
+      console.warn("IPC connection failed. Are you running in a web browser?");
+      return null;
+    }
   }
   return null;
 };
 
 const App: React.FC = () => {
   const [activeView, setActiveView] = useState<ViewMode>(ViewMode.DASHBOARD);
-  const ipc = getIpc();
+  const [ipc, setIpc] = useState<any>(null);
   
   const [timerSeconds, setTimerSeconds] = useState(0);
   const [isTimerRunning, setIsTimerRunning] = useState(false);
@@ -27,10 +32,14 @@ const App: React.FC = () => {
     return saved ? JSON.parse(saved) : [];
   });
 
+  // 初始化 IPC
   useEffect(() => {
-    if (ipc) {
+    const renderer = getIpc();
+    if (renderer) {
+      setIpc(renderer);
       const handleClipboard = (_event: any, text: string) => {
         setNotesState(prev => {
+          if (prev.length > 0 && prev[0].content === text) return prev;
           const newNote: Note = {
             id: Date.now().toString(),
             content: text,
@@ -42,14 +51,16 @@ const App: React.FC = () => {
           return updated;
         });
       };
-      ipc.on('clipboard-sync', handleClipboard);
-      return () => { ipc.removeAllListeners('clipboard-sync'); };
+      renderer.on('clipboard-sync', handleClipboard);
+      return () => { renderer.removeAllListeners('clipboard-sync'); };
     }
-  }, [ipc]);
+  }, []);
 
+  // 全局计时器逻辑
   useEffect(() => {
+    let timer: any;
     if (isTimerRunning && timerSeconds > 0) {
-      const timer = setInterval(() => {
+      timer = setInterval(() => {
         setTimerSeconds(prev => {
           if (prev <= 1) {
             setIsTimerRunning(false);
@@ -59,11 +70,27 @@ const App: React.FC = () => {
           return prev - 1;
         });
       }, 1000);
-      return () => clearInterval(timer);
     }
+    return () => clearInterval(timer);
   }, [isTimerRunning, timerSeconds]);
 
   useEffect(() => { localStorage.setItem('zen_notes', JSON.stringify(notes)); }, [notes]);
+
+  const handleMin = () => {
+    if (ipc) {
+      ipc.send('window-min');
+    } else {
+      console.log("Minimize clicked (Web Simulation)");
+    }
+  };
+
+  const handleClose = () => {
+    if (ipc) {
+      ipc.send('window-close');
+    } else {
+      console.log("Close clicked (Web Simulation)");
+    }
+  };
 
   const addNote = (content: string, tags: string[] = []) => {
     const newNote: Note = { id: Date.now().toString(), content, createdAt: Date.now(), tags };
@@ -71,23 +98,40 @@ const App: React.FC = () => {
   };
 
   return (
-    <div className="flex h-screen bg-slate-900 text-slate-100 overflow-hidden relative border border-white/10 rounded-xl shadow-2xl">
-      <div style={{ WebkitAppRegion: 'drag' } as any} className="absolute top-0 left-0 right-0 h-10 z-[60] cursor-move" />
+    <div className="flex h-screen bg-slate-900 text-slate-100 overflow-hidden relative border border-white/10 rounded-2xl shadow-2xl">
+      {/* 拖拽区域：置于底层 z-0，按钮置于上层 */}
+      <div style={{ WebkitAppRegion: 'drag' } as any} className="absolute top-0 left-0 right-0 h-12 z-0 cursor-move" />
       
-      <div className="absolute top-0 left-0 right-0 h-10 flex justify-between items-center px-4 z-[70] pointer-events-none">
+      {/* 顶栏控制层：z-50 */}
+      <div className="absolute top-0 left-0 right-0 h-12 flex justify-between items-center px-4 z-50 pointer-events-none">
         <div className="flex items-center gap-2">
-          <div className="w-2 h-2 rounded-full bg-indigo-500 shadow-lg animate-pulse"></div>
-          <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">ZenNote AI</span>
+          <div className="w-2 h-2 rounded-full bg-indigo-500 shadow-[0_0_8px_rgba(99,102,241,0.6)] animate-pulse"></div>
+          <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest select-none">ZenNote AI</span>
         </div>
-        <div className="flex space-x-2 items-center pointer-events-auto">
-           <button onClick={() => ipc?.send('window-min')} className="w-3 h-3 rounded-full bg-yellow-500/80 hover:brightness-110" />
-           <button onClick={() => ipc?.send('window-close')} className="w-3 h-3 rounded-full bg-red-500/80 hover:brightness-110" />
+        
+        <div className="flex space-x-3 items-center pointer-events-auto">
+           <button 
+             onClick={handleMin}
+             className="w-3.5 h-3.5 rounded-full bg-yellow-500/80 hover:bg-yellow-400 transition-colors shadow-sm flex items-center justify-center group"
+             title="最小化"
+           >
+             <div className="w-1.5 h-px bg-yellow-900/50 opacity-0 group-hover:opacity-100"></div>
+           </button>
+           <button 
+             onClick={handleClose}
+             className="w-3.5 h-3.5 rounded-full bg-red-500/80 hover:bg-red-400 transition-colors shadow-sm flex items-center justify-center group"
+             title="隐藏到托盘"
+           >
+             <div className="w-1.5 h-1.5 opacity-0 group-hover:opacity-100 flex items-center justify-center">
+               <svg className="w-2 h-2 text-red-900/50" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="4"><path d="M6 18L18 6M6 6l12 12"/></svg>
+             </div>
+           </button>
         </div>
       </div>
 
       <Sidebar activeView={activeView} setActiveView={setActiveView} />
 
-      <main className="flex-1 overflow-y-auto pt-12 pb-4 px-6 custom-scrollbar bg-gradient-to-br from-slate-900 to-indigo-950/20">
+      <main className="flex-1 overflow-y-auto pt-14 pb-4 px-6 custom-scrollbar bg-gradient-to-br from-slate-900 via-slate-900 to-indigo-950/30">
         {activeView === ViewMode.DASHBOARD && (
           <DashboardView timerSeconds={timerSeconds} setTimerSeconds={setTimerSeconds} isRunning={isTimerRunning} setIsRunning={setIsTimerRunning} />
         )}
