@@ -1,5 +1,5 @@
 
-const { app, BrowserWindow, clipboard, ipcMain, Tray, Menu, nativeImage } = require('electron');
+const { app, BrowserWindow, clipboard, ipcMain, Tray, Menu, nativeImage, session } = require('electron');
 const path = require('path');
 const fs = require('fs');
 
@@ -8,7 +8,6 @@ let tray = null;
 let lastClipboardText = "";
 let isQuitting = false;
 
-// 确保单实例
 const gotTheLock = app.requestSingleInstanceLock();
 if (!gotTheLock) {
   app.quit();
@@ -21,17 +20,10 @@ if (!gotTheLock) {
     }
   });
 
-  // 响应窗口操作
-  ipcMain.on('window-min', () => {
-    if (mainWindow) mainWindow.minimize();
-  });
-
-  ipcMain.on('window-close', () => {
-    if (mainWindow) mainWindow.hide(); // 隐藏到托盘
-  });
+  ipcMain.on('window-min', () => { if (mainWindow) mainWindow.minimize(); });
+  ipcMain.on('window-close', () => { if (mainWindow) mainWindow.hide(); });
 
   function getAppIcon() {
-    // 这是一个标准的 16x16 紫色圆形 PNG，包含透明通道，兼容性更高
     const b64 = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAABGdBTUEAALGPC/xhBQAAACBjSFJNAAB6JgAAgIQAAPoAAACA6AAAdTAAAOpgAAA6mAAAF3CculE8AAAACXBIWXMAAAsTAAALEwEAmpwYAAABNmlUWHRYTUw6Y29tLmFkb2JlLnhtcAAAAAAAPD94cGFja2V0IGJlZ2luPSLvu78iIGlkPSJXNU0wTXBDZWhpSHpyZVN6TlRjemtjOWQiPz4gPHg6eG1wbWV0YSB4bWxuczp4PSJhZG9iZTpuczptZXRhLyIgeDp4bXB0az0iQWRvYmUgWE1QIENvcmUgNS42LWMxNDAgNzkuMTYwNDUxLCAyMDE3LzA1LzA2LTAxOjA4OjIxICAgICAgICAiPiA8cmRmOlJERiB4bWxuczpyZGY9Imh0dHA6Ly93d3cudzMub3JnLzE5OTkvMDIvMjItcmRmLXN5bnRheC1ucyMiPiA8cmRmOkRlc2NyaXB0aW9uIHJkZjphYm91dD0iIi8+IDwvcmRmOlJERj4gPC94OnhtcG1ldGE+IDw/eHBhY2tldCBlbmQ9InciPz45uOfBAAAAZEVYSWZNTQAqAAAACAAFARIAAwAAAAEAAQAAARoABQAAAAEAAABKARsABQAAAAEAAABSASgAAwAAAAEAAgAAh2kABwAAAQAAAAByA6QAAwAAAAEAAQAAoAAABwAAAAQwMjEw6hwF6QAAAD9JREFUOBFjYBgFoyEwGgKjITAgIQAAIf8AAbOfmY0AAAAASUVORK5CYII=';
     return nativeImage.createFromDataURL(b64);
   }
@@ -40,14 +32,12 @@ if (!gotTheLock) {
     if (tray) return;
     const icon = getAppIcon();
     tray = new Tray(icon);
-    
     const contextMenu = Menu.buildFromTemplate([
       { label: 'ZenNote AI', enabled: false },
       { type: 'separator' },
       { label: '显示主界面', click: () => mainWindow.show() },
       { label: '彻底退出', click: () => { isQuitting = true; app.quit(); } }
     ]);
-
     tray.setToolTip('ZenNote AI');
     tray.setContextMenu(contextMenu);
     tray.on('double-click', () => mainWindow.show());
@@ -64,6 +54,17 @@ if (!gotTheLock) {
       webPreferences: {
         nodeIntegration: true,
         contextIsolation: false,
+        webSecurity: false,
+      }
+    });
+
+    // 关键修复：处理权限请求（摄像头/麦克风）
+    session.defaultSession.setPermissionRequestHandler((webContents, permission, callback) => {
+      const allowedPermissions = ['media', 'audioCapture', 'videoCapture', 'notifications'];
+      if (allowedPermissions.includes(permission)) {
+        callback(true);
+      } else {
+        callback(false);
       }
     });
 
@@ -79,6 +80,15 @@ if (!gotTheLock) {
         mainWindow.hide();
       }
     });
+
+    // 剪贴板监听
+    setInterval(() => {
+      const text = clipboard.readText().trim();
+      if (text && text !== lastClipboardText) {
+        lastClipboardText = text;
+        if (mainWindow) mainWindow.webContents.send('clipboard-sync', text);
+      }
+    }, 1000);
   }
 
   app.whenReady().then(() => {
