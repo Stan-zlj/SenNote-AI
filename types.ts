@@ -4,12 +4,32 @@ export interface Note {
   content: string;
   createdAt: number;
   tags: string[];
+  style?: {
+    bold?: boolean;
+    italic?: boolean;
+    underline?: boolean;
+  };
 }
 
 export interface DailyCheckIn {
   date: string; // YYYY-MM-DD
   status: boolean;
   notes: string;
+}
+
+export interface PDFAnnotation {
+  page: number;
+  drawings: Array<{
+    points: Array<{ x: number, y: number }>;
+    color: string;
+    width: number;
+  }>;
+  notes: Array<{
+    id: string;
+    text: string;
+    x: number;
+    y: number;
+  }>;
 }
 
 export interface Book {
@@ -19,6 +39,7 @@ export interface Book {
   progress: number; // 0 to 100
   type: 'pdf' | 'video' | 'image';
   mediaUrl?: string;
+  annotations?: Record<number, PDFAnnotation>; // Map of page number to annotations
 }
 
 export enum ViewMode {

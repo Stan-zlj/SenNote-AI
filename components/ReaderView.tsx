@@ -1,132 +1,226 @@
 
-import React, { useState, useRef, useEffect } from 'react';
-import { Book } from '../types';
-import { deepAnalysis } from '../services/geminiService';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
+import { Book, PDFAnnotation } from '../types';
+import { deepAnalysis, speakText } from '../services/geminiService';
+
+interface ChatMessage {
+  role: 'user' | 'model';
+  content: string;
+}
 
 interface ReaderViewProps {
   books: Book[];
   setBooks: (books: Book[]) => void;
 }
 
+type AnnotationTool = 'none' | 'pen' | 'eraser' | 'text';
+
 const ReaderView: React.FC<ReaderViewProps> = ({ books, setBooks }) => {
   const [activeBook, setActiveBook] = useState<Book | null>(null);
   const [aiQuestion, setAiQuestion] = useState('');
-  const [aiAnswer, setAiAnswer] = useState('');
+  const [chatHistory, setChatHistory] = useState<ChatMessage[]>([]);
   const [isReading, setIsReading] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   
-  // Interactive states
+  // PDF Loading & Interactive states
+  const [isPdfLoading, setIsPdfLoading] = useState(false);
   const [zoomLevel, setZoomLevel] = useState(1);
   const [isTheaterMode, setIsTheaterMode] = useState(false);
+  const [pdfPage, setPdfPage] = useState(1);
+  const [pageInput, setPageInput] = useState('1');
+  const [isPanMode, setIsPanMode] = useState(false);
+  const [showPdfSidebar, setShowPdfSidebar] = useState(true);
+  const [showAiChat, setShowAiChat] = useState(true);
 
-  // Video Player States
+  // Annotation states
+  const [activeTool, setActiveTool] = useState<AnnotationTool>('none');
+  const [isDrawing, setIsDrawing] = useState(false);
+  const [currentPath, setCurrentPath] = useState<Array<{x: number, y: number}>>([]);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+
+  // Navigation & Container refs
   const videoRef = useRef<HTMLVideoElement>(null);
+  const chatEndRef = useRef<HTMLDivElement>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const controlsTimeoutRef = useRef<number | null>(null);
+  
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
-  const [volume, setVolume] = useState(1);
-  const [isMuted, setIsMuted] = useState(false);
   const [showControls, setShowControls] = useState(true);
-  const controlsTimeoutRef = useRef<number | null>(null);
+
+  // Auto-scroll chat
+  useEffect(() => {
+    chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [chatHistory, isReading]);
+
+  // Persistence Logic for Annotations
+  const saveAnnotations = useCallback((newDrawing?: any, newNote?: any) => {
+    if (!activeBook) return;
+    const updatedBooks = books.map(b => {
+      if (b.id !== activeBook.id) return b;
+      const annotations = { ...(b.annotations || {}) };
+      const pageAnn: PDFAnnotation = annotations[pdfPage] || { page: pdfPage, drawings: [], notes: [] };
+      if (newDrawing) pageAnn.drawings.push(newDrawing);
+      if (newNote) pageAnn.notes.push(newNote);
+      annotations[pdfPage] = pageAnn;
+      return { ...b, annotations };
+    });
+    setBooks(updatedBooks);
+  }, [activeBook, pdfPage, books, setBooks]);
+
+  // Canvas drawing logic
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas || !activeBook) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    const ann = activeBook.annotations?.[pdfPage];
+    if (ann) {
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      ann.drawings.forEach(draw => {
+        if (draw.points.length < 2) return;
+        ctx.beginPath();
+        ctx.strokeStyle = draw.color;
+        ctx.lineWidth = draw.width;
+        ctx.moveTo(draw.points[0].x, draw.points[0].y);
+        draw.points.forEach(p => ctx.lineTo(p.x, p.y));
+        ctx.stroke();
+      });
+    }
+
+    if (currentPath.length > 1) {
+      ctx.beginPath();
+      ctx.strokeStyle = '#6366f1';
+      ctx.lineWidth = 2;
+      ctx.moveTo(currentPath[0].x, currentPath[0].y);
+      currentPath.forEach(p => ctx.lineTo(p.x, p.y));
+      ctx.stroke();
+    }
+  }, [activeBook, pdfPage, currentPath]);
+
+  useEffect(() => {
+    if (activeBook?.type === 'pdf') {
+      setIsPdfLoading(true);
+      setPageInput(pdfPage.toString());
+    }
+  }, [pdfPage, activeBook?.id]);
+
+  const handleCanvasMouseDown = (e: React.MouseEvent) => {
+    if (activeTool === 'none') { handleMouseDown(e); return; }
+    const rect = canvasRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    const x = (e.clientX - rect.left) / zoomLevel;
+    const y = (e.clientY - rect.top) / zoomLevel;
+    if (activeTool === 'pen') { setIsDrawing(true); setCurrentPath([{ x, y }]); }
+    else if (activeTool === 'text') {
+      const text = prompt("Enter memo:");
+      if (text) saveAnnotations(null, { id: Date.now().toString(), text, x, y });
+    }
+  };
+
+  const handleCanvasMouseMove = (e: React.MouseEvent) => {
+    if (activeTool === 'none') { handleMouseMovePan(e); return; }
+    if (!isDrawing || activeTool !== 'pen') return;
+    const rect = canvasRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    const x = (e.clientX - rect.left) / zoomLevel;
+    const y = (e.clientY - rect.top) / zoomLevel;
+    setCurrentPath(prev => [...prev, { x, y }]);
+  };
+
+  const handleCanvasMouseUp = () => {
+    if (isDrawing && currentPath.length > 1) {
+      saveAnnotations({ points: currentPath, color: '#6366f1', width: 2 }, null);
+    }
+    setIsDrawing(false);
+    setCurrentPath([]);
+  };
+
+  const handleWheel = (e: React.WheelEvent) => {
+    if (e.ctrlKey) {
+      e.preventDefault();
+      const delta = e.deltaY > 0 ? -0.1 : 0.1;
+      setZoomLevel(prev => Math.min(Math.max(0.1, prev + delta), 5));
+    }
+  };
+
+  const handleMouseDown = (e: React.MouseEvent) => {
+    if (!isPanMode && zoomLevel <= 1) return;
+    setIsDragging(true);
+    const container = scrollContainerRef.current;
+    if (!container) return;
+    setStartX(e.pageX - container.offsetLeft);
+    setStartY(e.pageY - container.offsetTop);
+    setScrollLeft(container.scrollLeft);
+    setScrollTop(container.scrollTop);
+  };
+
+  const [isDragging, setIsDragging] = useState(false);
+  const [startX, setStartX] = useState(0);
+  const [startY, setStartY] = useState(0);
+  const [scrollLeft, setScrollLeft] = useState(0);
+  const [scrollTop, setScrollTop] = useState(0);
+
+  const handleMouseMovePan = (e: React.MouseEvent) => {
+    if (!isDragging || !scrollContainerRef.current) return;
+    const container = scrollContainerRef.current;
+    const x = e.pageX - container.offsetLeft;
+    const y = e.pageY - container.offsetTop;
+    container.scrollLeft = scrollLeft - (x - startX) * 1.2;
+    container.scrollTop = scrollTop - (y - startY) * 1.2;
+  };
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
       setIsUploading(true);
       const type = file.type.includes('video') ? 'video' : file.type.includes('image') ? 'image' : 'pdf';
-      const reader = new FileReader();
-      
-      reader.onload = (event) => {
-        const newBook: Book = {
-          id: Date.now().toString(),
-          title: file.name,
-          contentSnippet: `Uploaded media: ${file.name}. Ask AI to analyze it.`,
-          progress: 0,
-          type: type as any,
-          mediaUrl: event.target?.result as string
-        };
-        setBooks([newBook, ...books]);
-        setIsUploading(false);
-      };
-
-      reader.onerror = () => {
-        setIsUploading(false);
-        alert("Failed to read file.");
-      };
-
-      reader.readAsDataURL(file);
+      const url = URL.createObjectURL(file);
+      setBooks([{ id: Date.now().toString(), title: file.name, contentSnippet: `Manual Upload`, progress: 0, type: type as any, mediaUrl: url }, ...books]);
+      setIsUploading(false);
     }
   };
 
-  const handleAnalyzeMedia = async () => {
+  const handleAnalyzeMedia = async (overridePrompt?: string) => {
     if (!activeBook || !activeBook.mediaUrl) return;
+    const userMsg = overridePrompt || aiQuestion.trim();
+    if (!userMsg) return;
+
+    if (!overridePrompt) setAiQuestion('');
+    setChatHistory(prev => [...prev, { role: 'user', content: userMsg }]);
     setIsReading(true);
-    const mimeType = activeBook.type === 'image' ? 'image/png' : activeBook.type === 'video' ? 'video/mp4' : 'application/pdf';
-    const base64Data = activeBook.mediaUrl.split(',')[1];
     
-    const result = await deepAnalysis([
-      { inlineData: { data: base64Data, mimeType } },
-      { text: aiQuestion || "Analyze this content for key study information." }
-    ]);
-    
-    setAiAnswer(result || "Analysis failed.");
-    setIsReading(false);
-  };
+    try {
+      const mimeType = activeBook.type === 'image' ? 'image/png' : activeBook.type === 'video' ? 'video/mp4' : 'application/pdf';
+      const response = await fetch(activeBook.mediaUrl);
+      const blob = await response.blob();
+      const base64Data = await new Promise<string>((resolve) => {
+        const reader = new FileReader();
+        reader.onloadend = () => resolve((reader.result as string).split(',')[1]);
+        reader.readAsDataURL(blob);
+      });
 
-  const resetActiveBook = () => {
-    setActiveBook(null);
-    setAiAnswer('');
-    setZoomLevel(1);
-    setIsTheaterMode(false);
-  };
+      const parts: any[] = [{ inlineData: { data: base64Data, mimeType } }];
+      
+      // Add context history
+      chatHistory.slice(-5).forEach(m => parts.push({ text: `${m.role === 'user' ? 'User' : 'Assistant'}: ${m.content}` }));
+      
+      let contextStr = `Question about current ${activeBook.type}: ${userMsg}.`;
+      if (activeBook.type === 'pdf') contextStr += ` (Focusing on Page ${pdfPage})`;
+      if (activeBook.type === 'video') contextStr += ` (Timestamp: ${currentTime.toFixed(1)}s)`;
+      
+      parts.push({ text: contextStr });
 
-  // Video Logic
-  const togglePlay = () => {
-    if (videoRef.current) {
-      if (videoRef.current.paused) {
-        videoRef.current.play();
-        setIsPlaying(true);
-      } else {
-        videoRef.current.pause();
-        setIsPlaying(false);
-      }
-    }
-  };
-
-  const handleTimeUpdate = () => {
-    if (videoRef.current) {
-      setCurrentTime(videoRef.current.currentTime);
-    }
-  };
-
-  const handleLoadedMetadata = () => {
-    if (videoRef.current) {
-      setDuration(videoRef.current.duration);
-    }
-  };
-
-  const handleSeek = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const time = parseFloat(e.target.value);
-    if (videoRef.current) {
-      videoRef.current.currentTime = time;
-      setCurrentTime(time);
-    }
-  };
-
-  const handleVolumeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const val = parseFloat(e.target.value);
-    setVolume(val);
-    if (videoRef.current) {
-      videoRef.current.volume = val;
-      setIsMuted(val === 0);
-    }
-  };
-
-  const toggleMute = () => {
-    if (videoRef.current) {
-      const nextMuted = !isMuted;
-      videoRef.current.muted = nextMuted;
-      setIsMuted(nextMuted);
+      const result = await deepAnalysis(parts);
+      if (result) setChatHistory(prev => [...prev, { role: 'model', content: result }]);
+    } catch (error) {
+      setChatHistory(prev => [...prev, { role: 'model', content: "Error analyzing content. Please check API settings." }]);
+    } finally {
+      setIsReading(false);
     }
   };
 
@@ -136,286 +230,128 @@ const ReaderView: React.FC<ReaderViewProps> = ({ books, setBooks }) => {
     return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
 
-  const handleMouseMove = () => {
-    setShowControls(true);
-    if (controlsTimeoutRef.current) window.clearTimeout(controlsTimeoutRef.current);
-    controlsTimeoutRef.current = window.setTimeout(() => {
-      if (isPlaying) setShowControls(false);
-    }, 3000);
+  const resetState = () => {
+    setActiveBook(null);
+    setChatHistory([]);
+    setZoomLevel(1);
+    setIsPanMode(false);
   };
-
-  const toggleFullscreen = () => {
-    if (videoRef.current) {
-      if (document.fullscreenElement) {
-        document.exitFullscreen();
-      } else {
-        videoRef.current.parentElement?.requestFullscreen();
-      }
-    }
-  };
-
-  useEffect(() => {
-    return () => {
-      if (controlsTimeoutRef.current) window.clearTimeout(controlsTimeoutRef.current);
-    };
-  }, []);
 
   return (
-    <div className={`space-y-6 relative transition-all duration-500 ${isTheaterMode ? 'max-w-none' : ''}`}>
-      {isUploading && (
-        <div className="absolute inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm rounded-2xl animate-in fade-in duration-300">
-          <div className="flex flex-col items-center gap-4">
-            <div className="w-12 h-12 border-4 border-indigo-500/20 border-t-indigo-500 rounded-full animate-spin"></div>
-            <p className="text-white font-medium animate-pulse">Processing your file...</p>
-          </div>
-        </div>
-      )}
+    <div className="flex flex-col h-full min-h-0 space-y-4">
+      {isUploading && <div className="absolute inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-md">Rendering...</div>}
 
       {!activeBook ? (
         <>
           <header className="flex justify-between items-center">
-            <div>
-              <h2 className="text-2xl font-bold bg-gradient-to-r from-white to-slate-400 bg-clip-text text-transparent">Library</h2>
-              <p className="text-slate-400 text-sm">PDFs, Images, and Videos.</p>
-            </div>
-            <label 
-              title="Add a new document, image, or video"
-              className={`cursor-pointer bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-xl text-sm font-medium transition-all shadow-lg flex items-center gap-2 ${isUploading ? 'opacity-50 pointer-events-none' : ''}`}
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-              </svg>
-              Import Media
-              <input type="file" className="hidden" accept=".pdf,.txt,.mp4,.png,.jpg,.jpeg" onChange={handleFileUpload} disabled={isUploading} />
+            <h2 className="text-xl font-bold">Workspace Library</h2>
+            <label className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-xl text-xs font-bold cursor-pointer transition-all">
+              Add Media + <input type="file" className="hidden" onChange={handleFileUpload} />
             </label>
           </header>
-
-          <div className="grid grid-cols-1 gap-4">
-            {books.length === 0 ? (
-              <div className="text-center py-20 border-2 border-dashed border-white/5 rounded-2xl">
-                <p className="text-slate-500">No media yet. Upload a PDF, Image or Video.</p>
+          <div className="grid gap-3 flex-1 overflow-y-auto custom-scrollbar">
+            {books.length === 0 ? <p className="text-slate-500 text-center py-10 italic">Empty library.</p> : books.map(b => (
+              <div key={b.id} onClick={() => setActiveBook(b)} className="bg-slate-800/40 border border-white/5 p-4 rounded-2xl hover:bg-indigo-600/10 cursor-pointer flex items-center gap-4 group">
+                <div className="w-10 h-10 bg-slate-900 rounded-lg flex items-center justify-center text-xl shadow-inner">{b.type === 'video' ? '🎥' : b.type === 'image' ? '🖼️' : '📄'}</div>
+                <div className="flex-1 truncate"><h4 className="font-bold text-sm text-slate-200 group-hover:text-white">{b.title}</h4></div>
               </div>
-            ) : (
-              books.map(book => (
-                <div key={book.id} onClick={() => !isUploading && setActiveBook(book)} className={`bg-slate-800/30 border border-white/5 p-5 rounded-2xl hover:bg-slate-800/60 transition-all flex items-center gap-5 group ${isUploading ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}>
-                  <div className="w-12 h-16 bg-slate-700 rounded-lg flex items-center justify-center text-slate-500 group-hover:bg-indigo-600/20 group-hover:text-indigo-400 transition-colors shadow-inner">
-                    {book.type === 'video' ? '🎥' : book.type === 'image' ? '🖼️' : '📄'}
-                  </div>
-                  <div className="flex-1">
-                    <h3 className="font-semibold text-slate-200 group-hover:text-white transition-colors">{book.title}</h3>
-                    <p className="text-xs text-slate-500 mt-1 uppercase tracking-widest">{book.type}</p>
-                  </div>
-                  <div className="text-indigo-500 opacity-0 group-hover:opacity-100 transition-opacity">
-                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                      <path fillRule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clipRule="evenodd" />
-                    </svg>
-                  </div>
-                </div>
-              ))
-            )}
+            ))}
           </div>
         </>
       ) : (
-        <div className="animate-in slide-in-from-right duration-500 flex flex-col h-full">
-          <div className="flex justify-between items-center mb-4">
-            <button 
-              onClick={resetActiveBook} 
-              title="Return to library view"
-              className="text-slate-400 hover:text-white flex items-center gap-1 text-sm font-medium transition-colors"
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
-              Back to Library
-            </button>
-            <div className="flex gap-2">
-              <button 
-                onClick={() => setIsTheaterMode(!isTheaterMode)} 
-                className={`p-2 rounded-lg text-xs font-bold transition-all ${isTheaterMode ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400 hover:text-white'}`}
-                title={isTheaterMode ? "Exit theater mode" : "Expand viewer for focused study"}
-              >
-                {isTheaterMode ? 'Exit Theater' : 'Theater Mode'}
-              </button>
+        <div className="flex-1 flex flex-col min-h-0 animate-in slide-in-from-right duration-500">
+          <div className="flex justify-between items-center mb-3">
+            <button onClick={resetState} className="text-slate-500 hover:text-white text-xs font-bold flex items-center gap-1"><svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path d="M15 19l-7-7 7-7" /></svg> Back</button>
+            <div className="flex items-center gap-2">
+              <button onClick={() => setShowAiChat(!showAiChat)} className={`p-1.5 rounded-lg text-[10px] font-bold transition-all ${showAiChat ? 'bg-purple-600 text-white shadow-lg shadow-purple-500/30' : 'bg-slate-800 text-slate-500'}`}>AI CO-PILOT</button>
+              <button onClick={() => setIsTheaterMode(!isTheaterMode)} className="text-[10px] bg-slate-800 px-3 py-1.5 rounded-lg text-slate-500 hover:text-white uppercase font-bold">Theater</button>
             </div>
           </div>
-          
-          <div className={`bg-slate-900/80 border border-white/10 rounded-2xl overflow-hidden shadow-2xl transition-all duration-500 ${isTheaterMode ? 'flex-1' : 'min-h-[500px]'} flex flex-col`}>
-            {/* Toolbar for the active media */}
-            <div className="bg-slate-800/50 p-3 border-b border-white/5 flex justify-between items-center">
-              <h2 className="text-sm font-bold text-slate-200 truncate px-2">{activeBook.title}</h2>
-              <div className="flex items-center gap-3">
-                {activeBook.type === 'image' && (
-                  <div className="flex items-center bg-slate-900 rounded-lg p-1 border border-white/5">
-                    <button 
-                      onClick={() => setZoomLevel(Math.max(0.5, zoomLevel - 0.25))} 
-                      title="Zoom Out"
-                      className="p-1 text-slate-400 hover:text-white"
-                    >
-                      <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 12H4" /></svg>
-                    </button>
-                    <span className="text-[10px] text-slate-500 w-10 text-center font-mono">{Math.round(zoomLevel * 100)}%</span>
-                    <button 
-                      onClick={() => setZoomLevel(Math.min(3, zoomLevel + 0.25))} 
-                      title="Zoom In"
-                      className="p-1 text-slate-400 hover:text-white"
-                    >
-                      <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
-                    </button>
+
+          <div className="flex-1 flex min-h-0 bg-slate-950/50 rounded-2xl border border-white/10 overflow-hidden relative shadow-inner">
+            <div className="flex-1 flex flex-col min-h-0 relative">
+              {/* Media controls toolbar */}
+              <div className="p-2 border-b border-white/5 bg-slate-900/40 flex justify-between items-center">
+                 <span className="text-[10px] font-bold text-slate-500 truncate max-w-[200px] uppercase ml-2">{activeBook.title}</span>
+                 <div className="flex items-center gap-2">
+                   {activeBook.type === 'pdf' && (
+                     <div className="flex gap-1">
+                       <button onClick={() => setActiveTool('pen')} className={`p-1.5 rounded ${activeTool === 'pen' ? 'bg-indigo-600' : 'hover:bg-slate-800'}`}><svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg></button>
+                       <button onClick={() => setActiveTool('text')} className={`p-1.5 rounded ${activeTool === 'text' ? 'bg-indigo-600' : 'hover:bg-slate-800'}`}><svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path d="M7 8h10M7 12h4m1 8l-4-4H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-3l-4 4z" /></svg></button>
+                     </div>
+                   )}
+                   <button onClick={() => setZoomLevel(z => Math.max(0.2, z - 0.1))} className="p-1 hover:text-white text-slate-500"><svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M20 12H4" /></svg></button>
+                   <span className="text-[10px] font-mono text-slate-500 w-8 text-center">{Math.round(zoomLevel * 100)}%</span>
+                   <button onClick={() => setZoomLevel(z => Math.min(5, z + 0.1))} className="p-1 hover:text-white text-slate-500"><svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M12 4v16m8-8H4" /></svg></button>
+                   <button onClick={() => setIsPanMode(!isPanMode)} className={`p-1.5 rounded ${isPanMode ? 'bg-emerald-600' : 'hover:bg-slate-800'}`}><svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path d="M7 11.5V14m0-2.5v-6a1.5 1.5 0 113 0V12m-3 .5V12m3 .5V9a1.5 1.5 0 113 0v4.5m-3-4.5V9m3 .5V8a1.5 1.5 0 113 0v9a5 5 0 01-5 5h-3a5 5 0 01-5-5v-4.5a1.5 1.5 0 113 0V11" /></svg></button>
+                 </div>
+              </div>
+
+              <div ref={scrollContainerRef} onWheel={handleWheel} onMouseDown={handleCanvasMouseDown} onMouseMove={handleCanvasMouseMove} onMouseUp={handleCanvasMouseUp} className={`flex-1 overflow-auto relative flex justify-center custom-scrollbar bg-black/20 ${isPanMode ? 'cursor-grab active:cursor-grabbing' : ''}`}>
+                <div style={{ transform: `scale(${zoomLevel})`, transformOrigin: 'top center' }} className="relative h-fit shadow-2xl transition-transform duration-200 mt-8 mb-32">
+                  {activeBook.type === 'image' && <img src={activeBook.mediaUrl} className="max-w-none rounded-sm" />}
+                  {activeBook.type === 'video' && <video src={activeBook.mediaUrl} controls className="max-w-none max-h-[80vh] rounded-xl shadow-2xl" onTimeUpdate={(e) => setCurrentTime(e.currentTarget.currentTime)} />}
+                  {activeBook.type === 'pdf' && (
+                    <div className="relative" style={{ width: '800px', height: '1100px' }}>
+                      <iframe src={`${activeBook.mediaUrl}#page=${pdfPage}&toolbar=0&navpanes=0`} className="w-full h-full pointer-events-none border-none bg-white rounded-lg" onLoad={() => setIsPdfLoading(false)} />
+                      <canvas ref={canvasRef} width={800} height={1100} className={`absolute inset-0 z-10 pointer-events-none ${activeTool !== 'none' ? 'pointer-events-auto' : ''}`} />
+                      {activeBook.annotations?.[pdfPage]?.notes.map(n => (
+                        <div key={n.id} style={{ left: n.x, top: n.y }} className="absolute z-20 bg-yellow-400 text-black p-2 rounded shadow-lg text-[10px] max-w-[120px] font-medium leading-tight">{n.text}</div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {activeBook.type === 'pdf' && (
+                  <div className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-slate-900/90 backdrop-blur-xl border border-white/10 px-4 py-2 rounded-2xl flex items-center gap-4 z-40 shadow-2xl">
+                    <button onClick={() => setPdfPage(p => Math.max(1, p - 1))} className="p-2 hover:bg-slate-700 rounded-xl transition-colors"><svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path d="M15 19l-7-7 7-7" /></svg></button>
+                    <div className="flex items-center gap-2"><span className="text-[9px] font-black text-slate-500 uppercase">Page</span><span className="font-mono text-white text-sm font-bold">{pdfPage}</span></div>
+                    <button onClick={() => setPdfPage(p => p + 1)} className="p-2 hover:bg-slate-700 rounded-xl transition-colors"><svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path d="M9 5l7 7-7 7" /></svg></button>
                   </div>
                 )}
               </div>
             </div>
 
-            {/* Media Canvas */}
-            <div className="flex-1 relative overflow-auto bg-black/40 flex items-center justify-center p-4 min-h-[300px]">
-              {activeBook.type === 'image' && (
-                <div className="transition-transform duration-200 ease-out origin-center" style={{ transform: `scale(${zoomLevel})` }}>
-                  <img src={activeBook.mediaUrl} className="max-w-full h-auto rounded-sm shadow-2xl" alt={activeBook.title} />
-                </div>
-              )}
-              {activeBook.type === 'video' && (
-                <div 
-                  className="w-full max-w-4xl aspect-video bg-black rounded-lg overflow-hidden shadow-2xl relative group/player"
-                  onMouseMove={handleMouseMove}
-                  onMouseLeave={() => isPlaying && setShowControls(false)}
-                >
-                  <video 
-                    ref={videoRef}
-                    src={activeBook.mediaUrl} 
-                    className="w-full h-full cursor-pointer"
-                    onTimeUpdate={handleTimeUpdate}
-                    onLoadedMetadata={handleLoadedMetadata}
-                    onClick={togglePlay}
-                    onEnded={() => setIsPlaying(false)}
-                  />
-                  
-                  {/* Central Overlay Button */}
-                  {(!isPlaying || showControls) && (
-                    <div 
-                      className="absolute inset-0 flex items-center justify-center bg-black/20 transition-opacity duration-300 pointer-events-none"
-                      onClick={togglePlay}
-                    >
-                      <button 
-                        title={isPlaying ? "Pause video" : "Play video"}
-                        className="w-16 h-16 bg-indigo-600/80 backdrop-blur-md rounded-full flex items-center justify-center text-white transition-transform hover:scale-110 active:scale-95 pointer-events-auto"
-                      >
-                        {isPlaying ? (
-                          <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zM7 8a1 1 0 012 0v4a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v4a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd" /></svg>
-                        ) : (
-                          <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8 ml-1" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z" clipRule="evenodd" /></svg>
-                        )}
-                      </button>
+            {showAiChat && (
+              <div className="w-80 bg-slate-900/95 border-l border-white/5 flex flex-col shadow-2xl animate-in slide-in-from-right duration-300">
+                <header className="p-4 border-b border-white/5 bg-slate-800/20 flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <div className="w-2 h-2 rounded-full bg-purple-500 shadow-[0_0_10px_purple]"></div>
+                    <h3 className="text-[10px] font-black text-white uppercase tracking-widest">Co-Pilot Reasoning</h3>
+                  </div>
+                  <button onClick={() => setChatHistory([])} className="text-[10px] text-slate-500 hover:text-white uppercase font-bold">Clear</button>
+                </header>
+                
+                <div className="flex-1 overflow-y-auto p-4 space-y-4 custom-scrollbar">
+                  {chatHistory.length === 0 && (
+                    <div className="flex flex-col items-center justify-center h-full opacity-30 space-y-4">
+                      <p className="text-[9px] font-bold uppercase text-center leading-relaxed">Multimodal Analysis Ready.<br/>Ask about current content.</p>
+                      <button onClick={() => handleAnalyzeMedia("Briefly summarize this page.")} className="text-[9px] border border-white/10 px-4 py-2 rounded-lg hover:bg-white/5 font-bold uppercase">Quick Summary</button>
                     </div>
                   )}
-
-                  {/* Bottom Controls Bar */}
-                  <div 
-                    className={`absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 via-black/40 to-transparent p-4 pt-10 transition-opacity duration-300 ${showControls ? 'opacity-100' : 'opacity-0'}`}
-                  >
-                    {/* Seek Bar */}
-                    <div className="flex items-center gap-3 mb-2">
-                      <input 
-                        type="range"
-                        min="0"
-                        max={duration || 100}
-                        value={currentTime}
-                        onChange={handleSeek}
-                        title="Seek progress"
-                        className="flex-1 accent-indigo-500 h-1 rounded-lg bg-white/20 appearance-none cursor-pointer"
-                      />
-                    </div>
-
-                    <div className="flex items-center justify-between text-white text-xs font-medium">
-                      <div className="flex items-center gap-4">
-                        <button onClick={togglePlay} title={isPlaying ? "Pause" : "Play"} className="hover:text-indigo-400 transition-colors">
-                          {isPlaying ? (
-                            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zM7 8a1 1 0 012 0v4a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v4a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd" /></svg>
-                          ) : (
-                            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z" clipRule="evenodd" /></svg>
-                          )}
-                        </button>
-                        
-                        <div className="flex items-center gap-2">
-                          <button onClick={toggleMute} title={isMuted || volume === 0 ? "Unmute" : "Mute"} className="hover:text-indigo-400 transition-colors">
-                            {isMuted || volume === 0 ? (
-                              <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M9.383 3.076A1 1 0 0110 4v12a1 1 0 01-1.707.707L4.586 13H2a1 1 0 01-1-1V8a1 1 0 011-1h2.586l3.707-3.707a1 1 0 011.09-.217zM12.293 7.293a1 1 0 011.414 0L15 8.586l1.293-1.293a1 1 0 111.414 1.414L16.414 10l1.293 1.293a1 1 0 01-1.414 1.414L15 11.414l-1.293 1.293a1 1 0 01-1.414-1.414L13.586 10l-1.293-1.293a1 1 0 010-1.414z" clipRule="evenodd" /></svg>
-                            ) : (
-                              <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M9.383 3.076A1 1 0 0110 4v12a1 1 0 01-1.707.707L4.586 13H2a1 1 0 01-1-1V8a1 1 0 011-1h2.586l3.707-3.707a1 1 0 011.09-.217zM14.657 14.657a1 1 0 01-1.414-1.414A3.998 3.998 0 0015 10c0-1.104-.448-2.104-1.172-2.828a1 1 0 111.414-1.414A5.998 5.998 0 0117 10c0 1.657-.672 3.157-1.757 4.243z" clipRule="evenodd" /><path fillRule="evenodd" d="M12.728 12.728a1 1 0 01-1.414-1.414A1.998 1.998 0 0012 10c0-.552-.224-1.052-.586-1.414a1 1 0 011.414-1.414A3.998 3.998 0 0114 10c0 1.104-.448 2.104-1.272 2.728z" clipRule="evenodd" /></svg>
-                            )}
-                          </button>
-                          <input 
-                            type="range"
-                            min="0"
-                            max="1"
-                            step="0.05"
-                            value={volume}
-                            onChange={handleVolumeChange}
-                            title="Adjust volume"
-                            className="w-16 accent-indigo-500 h-1 rounded-lg bg-white/20 appearance-none cursor-pointer"
-                          />
-                        </div>
-
-                        <span className="font-mono text-[10px] tracking-widest text-slate-300">
-                          {formatTime(currentTime)} / {formatTime(duration)}
-                        </span>
+                  {chatHistory.map((m, i) => (
+                    <div key={i} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'} animate-in fade-in duration-300`}>
+                      <div className={`max-w-[85%] p-3 rounded-2xl text-[11px] leading-relaxed ${m.role === 'user' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-500/10' : 'bg-slate-800/80 text-slate-200 border border-white/10'}`}>
+                        {m.content}
+                        {m.role === 'model' && (
+                          <button onClick={() => speakText(m.content)} className="block mt-2 text-[9px] text-indigo-400 hover:text-white font-bold uppercase transition-colors">Listen</button>
+                        )}
                       </div>
-
-                      <button onClick={toggleFullscreen} title="Toggle fullscreen" className="hover:text-indigo-400 transition-colors">
-                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" /></svg>
-                      </button>
                     </div>
-                  </div>
-                </div>
-              )}
-              {activeBook.type === 'pdf' && (
-                <div className="w-full max-w-3xl h-full flex flex-col items-center justify-center text-center p-10 bg-slate-800/20 border border-white/5 rounded-xl border-dashed">
-                  <div className="w-24 h-32 bg-white/5 rounded-lg border border-white/10 flex items-center justify-center mb-6 shadow-2xl relative">
-                    <div className="absolute top-2 right-2 w-6 h-6 bg-red-500 rounded flex items-center justify-center text-[10px] font-bold text-white">PDF</div>
-                    <svg xmlns="http://www.w3.org/2000/svg" className="h-10 w-10 text-slate-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                    </svg>
-                  </div>
-                  <h3 className="text-xl font-bold text-white mb-2">Document Preview</h3>
-                  <p className="text-slate-400 text-sm max-w-xs mb-6">PDF interactive viewing is optimized for AI analysis. Use the sidebar tool to extract data.</p>
-                  <button title="Open this file in an external viewer" className="px-6 py-2 bg-slate-800 text-slate-300 rounded-xl text-sm hover:bg-slate-700 transition-all border border-white/5">Open Externally</button>
-                </div>
-              )}
-            </div>
-
-            {/* AI Interaction Section */}
-            {!isTheaterMode && (
-              <div className="bg-slate-900/90 p-6 border-t border-white/10">
-                <div className="bg-slate-950/50 rounded-2xl p-5 border border-white/5 shadow-inner">
-                  <h4 className="text-xs font-bold text-indigo-400 mb-4 uppercase flex items-center gap-2 tracking-widest">
-                    <span className="flex h-2 w-2 rounded-full bg-indigo-500 animate-pulse"></span>
-                    Gemini Intelligence
-                  </h4>
-                  <div className="space-y-4">
-                    {aiAnswer && (
-                      <div className="text-sm text-slate-300 bg-slate-800/80 rounded-xl p-4 border border-indigo-500/20 whitespace-pre-wrap leading-relaxed shadow-lg animate-in fade-in slide-in-from-bottom-2 duration-300">
-                        {aiAnswer}
-                      </div>
-                    )}
-                    <div className="flex gap-3">
-                      <input 
-                        value={aiQuestion} 
-                        onChange={(e) => setAiQuestion(e.target.value)} 
-                        onKeyDown={(e) => e.key === 'Enter' && handleAnalyzeMedia()}
-                        placeholder="Ask about this material (e.g., Summarize the main points)" 
-                        className="flex-1 bg-slate-900 border border-white/10 rounded-xl px-4 py-3 text-sm text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/50 transition-all" 
-                      />
-                      <button 
-                        onClick={handleAnalyzeMedia} 
-                        disabled={isReading} 
-                        title="Query AI about this media"
-                        className="bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-3 rounded-xl text-sm font-bold transition-all disabled:opacity-50 shadow-lg flex items-center gap-2"
-                      >
-                        {isReading ? (
-                          <>
-                            <div className="w-4 h-4 border-2 border-white/20 border-t-white rounded-full animate-spin"></div>
-                            Thinking
-                          </>
-                        ) : 'Ask AI'}
-                      </button>
+                  ))}
+                  {isReading && (
+                    <div className="flex items-center gap-2 p-3 bg-purple-500/5 border border-purple-500/20 rounded-2xl animate-pulse">
+                      <div className="w-1.5 h-1.5 bg-purple-500 rounded-full"></div>
+                      <span className="text-[9px] font-black text-purple-400 uppercase tracking-widest">Thinking Deeply...</span>
                     </div>
+                  )}
+                  <div ref={chatEndRef} />
+                </div>
+
+                <div className="p-4 bg-slate-950/40 border-t border-white/5">
+                  <div className="relative group">
+                    <input value={aiQuestion} onChange={(e) => setAiQuestion(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleAnalyzeMedia()} placeholder="Ask co-pilot..." className="w-full bg-slate-900 border border-white/10 rounded-xl pl-4 pr-10 py-3 text-xs text-slate-200 focus:ring-1 focus:ring-purple-500/50 outline-none transition-all" />
+                    <button onClick={() => handleAnalyzeMedia()} disabled={isReading || !aiQuestion.trim()} className="absolute right-2 top-1.5 w-8 h-8 bg-purple-600 hover:bg-purple-500 text-white rounded-lg flex items-center justify-center transition-all disabled:opacity-50"><svg className="h-4 w-4 transform rotate-90" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" /></svg></button>
                   </div>
                 </div>
               </div>

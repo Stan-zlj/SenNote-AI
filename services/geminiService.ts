@@ -9,7 +9,8 @@ const getAIClient = () => {
 export const quickQuery = async (prompt: string) => {
   const ai = getAIClient();
   const response = await ai.models.generateContent({
-    model: 'gemini-2.5-flash-lite-latest',
+    // Updated to use the correct model alias from guidelines
+    model: 'gemini-flash-lite-latest',
     contents: prompt,
   });
   return response.text;
