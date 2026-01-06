@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { ViewMode, Note, DailyCheckIn, Book } from './types';
 import Sidebar from './components/Sidebar';
 import NoteView from './components/NoteView';
@@ -7,66 +7,60 @@ import ReaderView from './components/ReaderView';
 import StudioView from './components/StudioView';
 import ProgressView from './components/ProgressView';
 
-// 拖拽手柄组件 (Electron 专用)
+// 获取 Electron 实例
+const getIpc = () => {
+  try {
+    return (window as any).require ? (window as any).require('electron').ipcRenderer : null;
+  } catch (e) {
+    return null;
+  }
+};
+
+// 拖拽手柄：-webkit-app-region: drag 是 Electron 窗口可拖拽的关键
 const DragHandle = () => (
-  <div style={{ WebkitAppRegion: 'drag' } as any} className="absolute top-0 left-0 right-0 h-8 cursor-move z-[60] flex items-center justify-center group">
-    <div className="w-12 h-1 bg-white/10 rounded-full group-hover:bg-white/30 transition-all"></div>
+  <div 
+    style={{ WebkitAppRegion: 'drag' } as any} 
+    className="absolute top-0 left-0 right-0 h-12 z-[60] flex items-center justify-center group cursor-move"
+  >
+    <div className="w-16 h-1.5 bg-white/10 rounded-full group-hover:bg-white/30 transition-all mt-1 shadow-inner"></div>
   </div>
 );
 
-const HighlightText: React.FC<{ text: string; query: string }> = ({ text, query }) => {
-  if (!query.trim()) return <>{text}</>;
-  const parts = text.split(new RegExp(`(${query})`, 'gi'));
-  return (
-    <>
-      {parts.map((part, i) => 
-        part.toLowerCase() === query.toLowerCase() ? (
-          <span key={i} className="bg-indigo-500/40 text-indigo-100 px-0.5 rounded border border-indigo-400/30 font-medium">{part}</span>
-        ) : (
-          part
-        )
-      )}
-    </>
-  );
-};
-
 const App: React.FC = () => {
-  const [isMinimized, setIsMinimized] = useState(false);
-  const [isCompactMode, setIsCompactMode] = useState(true); // 默认开启悬浮模式
   const [activeView, setActiveView] = useState<ViewMode>(ViewMode.NOTES);
-  const [searchQuery, setSearchQuery] = useState('');
+  const ipc = getIpc();
   
   const [notes, setNotesState] = useState<Note[]>(() => {
     const saved = localStorage.getItem('zen_notes');
     return saved ? JSON.parse(saved) : [];
   });
   
-  // 监听 Electron 剪贴板同步
   useEffect(() => {
-    if ((window as any).ipcRenderer) {
-      const ipc = (window as any).ipcRenderer;
-      ipc.on('clipboard-sync', (event: any, text: string) => {
-        // 如果内容不在最新笔记中，则添加
+    if (ipc) {
+      const handleClipboard = (_event: any, text: string) => {
         setNotesState(prev => {
-          if (prev[0]?.content === text) return prev;
+          if (prev.length > 0 && prev[0].content === text) return prev;
           const newNote: Note = {
             id: Date.now().toString(),
             content: text,
             createdAt: Date.now(),
-            tags: ['Auto-Copy'],
+            tags: ['剪贴板'],
             style: { bold: false, italic: false, underline: false }
           };
           const updated = [newNote, ...prev];
           localStorage.setItem('zen_notes', JSON.stringify(updated));
           return updated;
         });
-      });
+      };
+      ipc.on('clipboard-sync', handleClipboard);
+      return () => {
+        ipc.removeAllListeners('clipboard-sync');
+      };
     }
-  }, []);
+  }, [ipc]);
 
   const [pastNotes, setPastNotes] = useState<Note[][]>([]);
   const [futureNotes, setFutureNotes] = useState<Note[][]>([]);
-
   const [checkIns, setCheckIns] = useState<DailyCheckIn[]>(() => {
     const saved = localStorage.getItem('zen_checkins');
     return saved ? JSON.parse(saved) : [];
@@ -90,22 +84,6 @@ const App: React.FC = () => {
     setNotesState(typeof newNotes === 'function' ? newNotes(notes) : newNotes);
   }, [notes]);
 
-  const undoNotes = useCallback(() => {
-    if (pastNotes.length === 0) return;
-    const previous = pastNotes[pastNotes.length - 1];
-    setFutureNotes(prev => [notes, ...prev]);
-    setPastNotes(pastNotes.slice(0, pastNotes.length - 1));
-    setNotesState(previous);
-  }, [pastNotes, notes]);
-
-  const redoNotes = useCallback(() => {
-    if (futureNotes.length === 0) return;
-    const next = futureNotes[0];
-    setPastNotes(prev => [...prev, notes]);
-    setFutureNotes(futureNotes.slice(1));
-    setNotesState(next);
-  }, [futureNotes, notes]);
-
   const addNote = (content: string, tags: string[] = []) => {
     const newNote: Note = {
       id: Date.now().toString(),
@@ -117,61 +95,56 @@ const App: React.FC = () => {
     setNotes([newNote, ...notes]);
   };
 
-  const addBook = (bookData: Omit<Book, 'id'>) => {
-    setBooks([{ ...bookData, id: Date.now().toString() }, ...books]);
+  const undoNotes = () => {
+    if (pastNotes.length === 0) return;
+    const previous = pastNotes[pastNotes.length - 1];
+    setFutureNotes(prev => [notes, ...prev]);
+    setPastNotes(pastNotes.slice(0, pastNotes.length - 1));
+    setNotesState(previous);
   };
 
-  const toggleCheckIn = () => {
-    const today = new Date().toISOString().split('T')[0];
-    const existing = checkIns.find(c => c.date === today);
-    if (existing) setCheckIns(checkIns.filter(c => c.date !== today));
-    else setCheckIns([...checkIns, { date: today, status: true, notes: '' }]);
+  const redoNotes = () => {
+    if (futureNotes.length === 0) return;
+    const next = futureNotes[0];
+    setPastNotes(prev => [...prev, notes]);
+    setFutureNotes(futureNotes.slice(1));
+    setNotesState(next);
   };
-
-  const filteredResults = useMemo(() => {
-    if (!searchQuery.trim()) return { notes: [], books: [] };
-    const q = searchQuery.toLowerCase();
-    return {
-      notes: notes.filter(n => n.content.toLowerCase().includes(q) || n.tags.some(t => t.toLowerCase().includes(q))),
-      books: books.filter(b => b.title.toLowerCase().includes(q) || b.contentSnippet.toLowerCase().includes(q))
-    };
-  }, [searchQuery, notes, books]);
-
-  if (isMinimized) {
-    return (
-      <div 
-        onClick={() => setIsMinimized(false)}
-        className="fixed bottom-8 right-8 w-14 h-14 bg-indigo-600 rounded-full flex items-center justify-center cursor-pointer shadow-2xl hover:scale-110 transition-all border-2 border-white/20 z-50 group"
-      >
-        <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5" /></svg>
-      </div>
-    );
-  }
 
   return (
-    <div className={`flex h-screen transition-all duration-700 bg-slate-900 text-slate-100 overflow-hidden ${isCompactMode ? 'w-full rounded-none border-none' : 'w-full rounded-xl border border-white/10'} backdrop-blur-xl relative`}>
+    <div className="flex h-screen bg-slate-900 text-slate-100 overflow-hidden relative border border-white/10 rounded-xl shadow-2xl">
       <DragHandle />
       
-      <div className="absolute top-0 left-0 right-0 h-12 flex justify-between items-center px-4 z-50 bg-slate-950/40 border-b border-white/5">
-        <div className="flex items-center gap-2 pt-2">
+      {/* 顶部标题栏 */}
+      <div className="absolute top-0 left-0 right-0 h-12 flex justify-between items-center px-4 z-50 pointer-events-none">
+        <div className="flex items-center gap-2">
           <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></div>
-          <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Active Companion</span>
+          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-[0.2em]">ZenNote AI</span>
         </div>
-        <div className="flex space-x-2 items-center pt-2">
-           <button onClick={() => setIsMinimized(true)} className="w-3 h-3 rounded-full bg-yellow-500/80 hover:bg-yellow-400 transition-colors" />
-           <button onClick={() => { if(window.close) window.close(); }} className="w-3 h-3 rounded-full bg-red-500/80 hover:bg-red-400 transition-colors" />
+        <div className="flex space-x-3 items-center pointer-events-auto">
+           <button 
+             onClick={() => ipc?.send('window-min')} 
+             className="w-3 h-3 rounded-full bg-yellow-500/80 hover:bg-yellow-400 transition-all hover:scale-110 shadow-lg" 
+             title="最小化"
+           />
+           <button 
+             onClick={() => ipc?.send('window-close')} 
+             className="w-3 h-3 rounded-full bg-red-500/80 hover:bg-red-400 transition-all hover:scale-110 shadow-lg" 
+             title="关闭"
+           />
         </div>
       </div>
 
       <Sidebar activeView={activeView} setActiveView={setActiveView} compact={true} />
 
-      <main className="flex-1 overflow-y-auto pt-16 pb-6 px-4 relative custom-scrollbar bg-[#0f172a]">
-          <>
-            {activeView === ViewMode.NOTES && <NoteView notes={notes} onAddNote={addNote} setNotes={setNotes} onUndo={undoNotes} onRedo={redoNotes} canUndo={pastNotes.length > 0} canRedo={futureNotes.length > 0} />}
-            {activeView === ViewMode.READER && <ReaderView books={books} setBooks={setBooks} />}
-            {activeView === ViewMode.STUDIO && <StudioView onSaveToLibrary={addBook} onSaveNote={addNote} />}
-            {activeView === ViewMode.PROGRESS && <ProgressView checkIns={checkIns} toggleCheckIn={toggleCheckIn} />}
-          </>
+      <main className="flex-1 overflow-y-auto pt-14 pb-4 px-4 custom-scrollbar bg-gradient-to-br from-slate-900 via-slate-900 to-indigo-950/20">
+        {activeView === ViewMode.NOTES && <NoteView notes={notes} onAddNote={addNote} setNotes={setNotes} onUndo={undoNotes} onRedo={redoNotes} canUndo={pastNotes.length > 0} canRedo={futureNotes.length > 0} />}
+        {activeView === ViewMode.READER && <ReaderView books={books} setBooks={setBooks} />}
+        {activeView === ViewMode.STUDIO && <StudioView onSaveToLibrary={(b) => setBooks([ {...b, id: Date.now().toString()}, ...books])} onSaveNote={addNote} />}
+        {activeView === ViewMode.PROGRESS && <ProgressView checkIns={checkIns} toggleCheckIn={() => {
+          const today = new Date().toISOString().split('T')[0];
+          setCheckIns(prev => prev.some(c => c.date === today) ? prev.filter(c => c.date !== today) : [...prev, {date: today, status: true, notes: ''}]);
+        }} />}
       </main>
     </div>
   );

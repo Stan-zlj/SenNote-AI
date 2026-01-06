@@ -1,9 +1,8 @@
 {
-  "name": "ZenNote AI",
-  "description": "A sleek, floating note-taking and learning tracker with built-in AI for multi-modal analysis.",
   "requestFramePermissions": [
     "camera",
-    "microphone",
-    "clipboard-read"
-  ]
+    "microphone"
+  ],
+  "name": "",
+  "description": ""
 }

@@ -1,5 +1,5 @@
 
-const { app, BrowserWindow, clipboard, ipcMain, Tray, Menu } = require('electron');
+const { app, BrowserWindow, clipboard, ipcMain } = require('electron');
 const path = require('path');
 
 let mainWindow;
@@ -9,39 +9,46 @@ function createWindow() {
   mainWindow = new BrowserWindow({
     width: 480,
     height: 700,
-    frame: false, // 无边框
-    alwaysOnTop: true, // 置顶
-    transparent: true, // 透明支持
+    frame: false,
+    alwaysOnTop: true,
+    transparent: true,
+    backgroundColor: '#1e293b', // 即使没加载出来，也给个深色底色，不黑屏
     webPreferences: {
       nodeIntegration: true,
       contextIsolation: false
     }
   });
 
-  // 加载本地入口
-  mainWindow.loadFile('index.html');
+  const isDev = !app.isPackaged;
+  if (isDev) {
+    // 自动重试加载，直到 Vite 服务器启动
+    const loadURL = () => {
+      mainWindow.loadURL('http://localhost:5173').catch(() => {
+        console.log("Vite 服务器未就绪，2秒后重试...");
+        setTimeout(loadURL, 2000);
+      });
+    };
+    loadURL();
+  } else {
+    mainWindow.loadFile(path.join(__dirname, 'dist/index.html'));
+  }
 
-  // 开机自启设置
-  app.setLoginItemSettings({
-    openAtLogin: true,
-    path: app.getPath('exe')
-  });
+  // 窗口控制
+  ipcMain.on('window-min', () => mainWindow.minimize());
+  ipcMain.on('window-close', () => mainWindow.close());
 
-  // 剪贴板监听器 (每秒检查一次)
+  // 剪贴板自动同步
   setInterval(() => {
-    const text = clipboard.readText();
-    if (text && text !== lastClipboardText) {
-      lastClipboardText = text;
-      // 发送给渲染进程（前端）
-      if (mainWindow) {
-        mainWindow.webContents.send('clipboard-sync', text);
+    try {
+      const text = clipboard.readText();
+      if (text && text !== lastClipboardText) {
+        lastClipboardText = text;
+        if (mainWindow) {
+          mainWindow.webContents.send('clipboard-sync', text);
+        }
       }
-    }
+    } catch (e) {}
   }, 1000);
-
-  mainWindow.on('closed', () => {
-    mainWindow = null;
-  });
 }
 
 app.whenReady().then(createWindow);
