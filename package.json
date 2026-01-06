@@ -8,7 +8,7 @@
   "scripts": {
     "dev": "vite",
     "start": "electron .",
-    "build": "vite build && electron-builder",
+    "build": "vite build && electron-builder --win dir",
     "build:fast": "vite build && electron-builder --win dir"
   },
   "devDependencies": {
@@ -36,8 +36,7 @@
     },
     "win": {
       "target": [
-        "dir",
-        "portable"
+        "dir"
       ],
       "icon": "https://cdn-icons-png.flaticon.com/512/566/566437.png"
     },
