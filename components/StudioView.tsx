@@ -9,6 +9,12 @@ const StudioView: React.FC = () => {
   const [isInitializing, setIsInitializing] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   
+  // 播放器状态
+  const [playbackSpeed, setPlaybackSpeed] = useState(1);
+  const [currentTime, setCurrentTime] = useState(0);
+  const [duration, setDuration] = useState(0);
+  const [isPlaying, setIsPlaying] = useState(false);
+
   // Veo Video Generation States
   const [veoPrompt, setVeoPrompt] = useState('');
   const [veoRatio, setVeoRatio] = useState<'16:9' | '9:16'>('16:9');
@@ -20,11 +26,17 @@ const StudioView: React.FC = () => {
   const [selectedVideoId, setSelectedVideoId] = useState<string>('');
 
   const videoRef = useRef<HTMLVideoElement>(null);
+  const playbackRef = useRef<HTMLVideoElement | HTMLAudioElement | null>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const chunksRef = useRef<Blob[]>([]);
+  
+  // 音频频谱相关
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const animationFrameRef = useRef<number | null>(null);
+  const audioCtxRef = useRef<AudioContext | null>(null);
+  const analyzerRef = useRef<AnalyserNode | null>(null);
 
-  // 获取可用设备列表
   const refreshDevices = async () => {
     try {
       const devices = await navigator.mediaDevices.enumerateDevices();
@@ -40,6 +52,10 @@ const StudioView: React.FC = () => {
 
   useEffect(() => {
     refreshDevices();
+    return () => {
+      releaseHardware();
+      if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
+    };
   }, []);
 
   const releaseHardware = () => {
@@ -51,11 +67,46 @@ const StudioView: React.FC = () => {
     if (recorderRef.current && recorderRef.current.state !== 'inactive') {
       recorderRef.current.stop();
     }
+    if (audioCtxRef.current) audioCtxRef.current.close();
   };
 
-  useEffect(() => {
-    return () => releaseHardware();
-  }, []);
+  const startVisualizer = (stream: MediaStream) => {
+    const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+    const analyzer = audioCtx.createAnalyser();
+    const source = audioCtx.createMediaStreamSource(stream);
+    source.connect(analyzer);
+    analyzer.fftSize = 64;
+    
+    audioCtxRef.current = audioCtx;
+    analyzerRef.current = analyzer;
+
+    const bufferLength = analyzer.frequencyBinCount;
+    const dataArray = new Uint8Array(bufferLength);
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    const draw = () => {
+      animationFrameRef.current = requestAnimationFrame(draw);
+      analyzer.getByteFrequencyData(dataArray);
+      
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      const barWidth = (canvas.width / bufferLength) * 2.5;
+      let x = 0;
+
+      for (let i = 0; i < bufferLength; i++) {
+        const barHeight = (dataArray[i] / 255) * canvas.height;
+        const gradient = ctx.createLinearGradient(0, canvas.height, 0, 0);
+        gradient.addColorStop(0, '#4f46e5');
+        gradient.addColorStop(1, '#818cf8');
+        ctx.fillStyle = gradient;
+        ctx.fillRect(x, canvas.height - barHeight, barWidth, barHeight);
+        x += barWidth + 2;
+      }
+    };
+    draw();
+  };
 
   const startMedia = async (type: 'video' | 'audio') => {
     setIsInitializing(true);
@@ -66,10 +117,7 @@ const StudioView: React.FC = () => {
 
     try {
       const constraints: MediaStreamConstraints = type === 'video' 
-        ? { 
-            video: selectedVideoId ? { deviceId: { exact: selectedVideoId } } : true, 
-            audio: true 
-          }
+        ? { video: selectedVideoId ? { deviceId: { exact: selectedVideoId } } : true, audio: true }
         : { audio: true };
 
       const stream = await navigator.mediaDevices.getUserMedia(constraints);
@@ -79,6 +127,8 @@ const StudioView: React.FC = () => {
         videoRef.current.srcObject = stream;
         videoRef.current.onloadedmetadata = () => videoRef.current?.play().catch(console.error);
       }
+
+      startVisualizer(stream);
 
       const recorder = new MediaRecorder(stream);
       recorder.ondataavailable = (e) => e.data.size > 0 && chunksRef.current.push(e.data);
@@ -92,14 +142,7 @@ const StudioView: React.FC = () => {
       recorder.start(1000);
       setRecording(true);
     } catch (err: any) {
-      console.error("Hardware Error:", err);
-      let msg = "硬件无法启动。";
-      if (err.name === 'NotReadableError') {
-        msg = "摄像头被占用或笔记本已合盖。请检查隐私开关、F8 快捷键，或尝试切换摄像头。";
-      } else if (err.name === 'NotAllowedError') {
-        msg = "系统权限已拒绝。请检查 Windows/macOS 隐私设置。";
-      }
-      setErrorMsg(msg);
+      setErrorMsg("设备启动失败，请检查麦克风/摄像头权限。");
       releaseHardware();
     } finally {
       setIsInitializing(false);
@@ -109,64 +152,68 @@ const StudioView: React.FC = () => {
   const stopMedia = () => {
     if (recorderRef.current?.state !== 'inactive') recorderRef.current?.stop();
     setRecording(false);
+    if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
+  };
+
+  // 播放器逻辑
+  const togglePlay = () => {
+    if (!playbackRef.current) return;
+    if (isPlaying) playbackRef.current.pause();
+    else playbackRef.current.play();
+    setIsPlaying(!isPlaying);
+  };
+
+  const handleTimeUpdate = () => {
+    if (playbackRef.current) {
+      setCurrentTime(playbackRef.current.currentTime);
+      setDuration(playbackRef.current.duration);
+    }
+  };
+
+  const seek = (val: number) => {
+    if (playbackRef.current) {
+      playbackRef.current.currentTime = val;
+      setCurrentTime(val);
+    }
+  };
+
+  const jump = (delta: number) => {
+    if (playbackRef.current) {
+      playbackRef.current.currentTime = Math.min(Math.max(0, playbackRef.current.currentTime + delta), duration);
+    }
+  };
+
+  const changeSpeed = () => {
+    const speeds = [1, 1.25, 1.5, 2, 0.5];
+    const next = speeds[(speeds.indexOf(playbackSpeed) + 1) % speeds.length];
+    setPlaybackSpeed(next);
+    if (playbackRef.current) playbackRef.current.playbackRate = next;
   };
 
   // Veo Generation
   const generateVeoVideo = async () => {
     if (!veoPrompt.trim()) return;
-    
-    // Check API Key Selection (Mandatory for Veo)
-    const win = window as any;
-    if (win.aistudio && typeof win.aistudio.hasSelectedApiKey === 'function') {
-      const hasKey = await win.aistudio.hasSelectedApiKey();
-      if (!hasKey) {
-        setVeoProgress("请先选择付费 API Key 以使用视频生成功能。正在打开选择窗口...");
-        await win.aistudio.openSelectKey();
-        // Proceeding after openSelectKey is assumed success per instructions
-      }
-    }
-
     setIsVeoGenerating(true);
     setVeoProgress("正在联系智影创作中心 (Veo 3)...");
-    
     try {
       const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
       let operation = await ai.models.generateVideos({
         model: 'veo-3.1-fast-generate-preview',
         prompt: veoPrompt,
-        config: {
-          numberOfVideos: 1,
-          resolution: '720p',
-          aspectRatio: veoRatio
-        }
+        config: { numberOfVideos: 1, resolution: '720p', aspectRatio: veoRatio }
       });
-
-      setVeoProgress("正在激发 AI 灵感，这可能需要几分钟...");
-      
       while (!operation.done) {
         await new Promise(resolve => setTimeout(resolve, 10000));
         setVeoProgress("AI 正在精心渲染您的创意视频...");
-        try {
-          operation = await ai.operations.getVideosOperation({ operation: operation });
-        } catch (opErr: any) {
-          if (opErr.message?.includes("Requested entity was not found")) {
-            setVeoProgress("密钥授权失效，请重新选择。");
-            if (win.aistudio) await win.aistudio.openSelectKey();
-            throw opErr;
-          }
-          throw opErr;
-        }
+        operation = await ai.operations.getVideosOperation({ operation: operation });
       }
-
       const downloadLink = operation.response?.generatedVideos?.[0]?.video?.uri;
       if (downloadLink) {
         const videoRes = await fetch(`${downloadLink}&key=${process.env.API_KEY}`);
         const videoBlob = await videoRes.blob();
         setMediaBlob(URL.createObjectURL(videoBlob));
-        setVeoProgress("视频创作完成！");
       }
     } catch (err: any) {
-      console.error(err);
       setErrorMsg(`视频生成失败: ${err.message}`);
     } finally {
       setIsVeoGenerating(false);
@@ -180,7 +227,7 @@ const StudioView: React.FC = () => {
           <h2 className="text-xl font-black text-white flex items-center gap-2">
             多媒体工坊 {recording && <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />}
           </h2>
-          <p className="text-slate-500 text-[10px] uppercase tracking-widest font-bold">Media Lab</p>
+          <p className="text-slate-500 text-[10px] uppercase tracking-widest font-bold">Media Lab & Player Pro</p>
         </div>
         
         {activeTab === 'video' && !recording && videoDevices.length > 1 && (
@@ -216,13 +263,13 @@ const StudioView: React.FC = () => {
               <textarea
                 value={veoPrompt}
                 onChange={e => setVeoPrompt(e.target.value)}
-                placeholder="描述你想要的视频场景，例如：一根赛博朋克风格的霓虹发光羽毛在空中缓慢飘落..."
-                className="w-full h-24 bg-slate-900/60 border border-white/10 rounded-2xl p-4 text-xs text-white outline-none focus:ring-1 focus:ring-indigo-500 transition-all resize-none"
+                placeholder="描述你想要的视频场景..."
+                className="w-full h-20 bg-slate-900/60 border border-white/10 rounded-2xl p-4 text-xs text-white outline-none focus:ring-1 focus:ring-indigo-500 transition-all resize-none"
               />
               <div className="flex items-center justify-between">
                 <div className="flex gap-2">
-                  <button onClick={() => setVeoRatio('16:9')} className={`px-4 py-2 rounded-xl text-[10px] font-bold border transition-all ${veoRatio === '16:9' ? 'bg-indigo-600 border-indigo-500 text-white' : 'border-white/10 text-slate-500'}`}>16:9 横屏</button>
-                  <button onClick={() => setVeoRatio('9:16')} className={`px-4 py-2 rounded-xl text-[10px] font-bold border transition-all ${veoRatio === '9:16' ? 'bg-indigo-600 border-indigo-500 text-white' : 'border-white/10 text-slate-500'}`}>9:16 竖屏</button>
+                  <button onClick={() => setVeoRatio('16:9')} className={`px-4 py-2 rounded-xl text-[10px] font-bold border transition-all ${veoRatio === '16:9' ? 'bg-indigo-600 border-indigo-500 text-white' : 'border-white/10 text-slate-500'}`}>16:9</button>
+                  <button onClick={() => setVeoRatio('9:16')} className={`px-4 py-2 rounded-xl text-[10px] font-bold border transition-all ${veoRatio === '9:16' ? 'bg-indigo-600 border-indigo-500 text-white' : 'border-white/10 text-slate-500'}`}>9:16</button>
                 </div>
                 <button 
                   onClick={generateVeoVideo} 
@@ -236,7 +283,34 @@ const StudioView: React.FC = () => {
 
             <div className="flex-1 bg-slate-950 rounded-[32px] border border-white/5 flex items-center justify-center overflow-hidden relative shadow-inner">
               {mediaBlob ? (
-                <video src={mediaBlob} controls className="w-full h-full object-contain" />
+                <div className="relative w-full h-full group">
+                  <video 
+                    ref={el => { (playbackRef.current as any) = el; }} 
+                    src={mediaBlob} 
+                    className="w-full h-full object-contain"
+                    onTimeUpdate={handleTimeUpdate}
+                    onLoadedMetadata={handleTimeUpdate}
+                  />
+                  {/* 自定义控件 */}
+                  <div className="absolute bottom-6 left-1/2 -translate-x-1/2 w-[90%] bg-slate-900/80 backdrop-blur-xl border border-white/10 p-4 rounded-[24px] flex flex-col gap-3 opacity-0 group-hover:opacity-100 transition-all shadow-2xl z-50">
+                    <input 
+                      type="range" min="0" max={duration || 0} step="0.1" value={currentTime} 
+                      onChange={(e) => seek(parseFloat(e.target.value))}
+                      className="w-full accent-indigo-500 h-1 rounded-full cursor-pointer"
+                    />
+                    <div className="flex items-center justify-between text-[10px] font-bold text-slate-300">
+                      <div className="flex items-center gap-4">
+                        <button onClick={togglePlay} className="text-white bg-indigo-600 w-8 h-8 rounded-full flex items-center justify-center">{isPlaying ? '⏸' : '▶'}</button>
+                        <button onClick={() => jump(-5)}>⏪ -5s</button>
+                        <button onClick={() => jump(5)}>+5s ⏩</button>
+                        <button onClick={changeSpeed} className="bg-slate-800 px-3 py-1 rounded-lg">速度: {playbackSpeed}x</button>
+                      </div>
+                      <div className="tabular-nums">
+                        {Math.floor(currentTime)}s / {Math.floor(duration)}s
+                      </div>
+                    </div>
+                  </div>
+                </div>
               ) : isVeoGenerating ? (
                 <div className="text-center p-8 space-y-4">
                   <div className="w-12 h-12 border-4 border-indigo-500/20 border-t-indigo-500 rounded-full animate-spin mx-auto" />
@@ -251,12 +325,47 @@ const StudioView: React.FC = () => {
             </div>
           </div>
         ) : (
-          <div className="aspect-video bg-slate-950 rounded-[32px] border border-white/5 flex items-center justify-center overflow-hidden relative group shadow-inner h-full max-h-[400px]">
+          <div className="aspect-video bg-slate-950 rounded-[32px] border border-white/5 flex flex-col items-center justify-center overflow-hidden relative shadow-inner h-full max-h-[400px]">
             <video ref={videoRef} autoPlay muted playsInline className={`absolute inset-0 w-full h-full object-cover mirror ${activeTab === 'video' && recording ? 'opacity-100' : 'opacity-0 pointer-events-none'}`} />
             
+            {/* 录音可视化 - 麦克风阵列效果 */}
+            {recording && (
+              <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-900/40 pointer-events-none z-10">
+                <canvas ref={canvasRef} width={200} height={60} className="w-48 h-16 opacity-80" />
+                <p className="text-[10px] text-red-400 font-black uppercase tracking-[0.3em] mt-4 animate-pulse">正在捕捉采样中...</p>
+              </div>
+            )}
+
             {mediaBlob && (activeTab === 'video' || activeTab === 'audio') && !recording && (
-              activeTab === 'video' ? <video src={mediaBlob} controls className="w-full h-full object-contain bg-black z-10" />
-              : <div className="z-10 bg-slate-900 p-8 rounded-3xl border border-white/10 w-full max-w-[300px] text-center"><audio src={mediaBlob} controls className="w-full" /><p className="text-[10px] text-slate-500 mt-4 font-black uppercase tracking-widest">录音已保存</p></div>
+               <div className="relative w-full h-full group flex flex-col items-center justify-center z-20">
+                  {activeTab === 'video' ? (
+                    <video ref={el => { (playbackRef.current as any) = el; }} src={mediaBlob} className="w-full h-full object-contain" onTimeUpdate={handleTimeUpdate} onLoadedMetadata={handleTimeUpdate} />
+                  ) : (
+                    <div className="flex flex-col items-center gap-6">
+                      <audio ref={el => { (playbackRef.current as any) = el; }} src={mediaBlob} onTimeUpdate={handleTimeUpdate} onLoadedMetadata={handleTimeUpdate} className="hidden" />
+                      <div className="w-24 h-24 bg-indigo-600/20 rounded-full flex items-center justify-center text-4xl animate-pulse">🎙️</div>
+                      <p className="text-xs text-indigo-400 font-black uppercase tracking-widest">音频已录制完毕</p>
+                    </div>
+                  )}
+
+                  {/* 自定义播放控件 */}
+                  <div className="absolute bottom-6 left-1/2 -translate-x-1/2 w-[90%] bg-slate-900/80 backdrop-blur-xl border border-white/10 p-4 rounded-[24px] flex flex-col gap-3 opacity-0 group-hover:opacity-100 transition-all shadow-2xl z-50">
+                    <input 
+                      type="range" min="0" max={duration || 0} step="0.1" value={currentTime} 
+                      onChange={(e) => seek(parseFloat(e.target.value))}
+                      className="w-full accent-indigo-500 h-1 rounded-full cursor-pointer"
+                    />
+                    <div className="flex items-center justify-between text-[10px] font-bold text-slate-300">
+                      <div className="flex items-center gap-4">
+                        <button onClick={togglePlay} className="text-white bg-indigo-600 w-8 h-8 rounded-full flex items-center justify-center">{isPlaying ? '⏸' : '▶'}</button>
+                        <button onClick={() => jump(-5)}>⏪ -5s</button>
+                        <button onClick={() => jump(5)}>+5s ⏩</button>
+                        <button onClick={changeSpeed} className="bg-slate-800 px-3 py-1 rounded-lg">速度: {playbackSpeed}x</button>
+                      </div>
+                      <div className="tabular-nums">{Math.floor(currentTime)}s / {Math.floor(duration)}s</div>
+                    </div>
+                  </div>
+               </div>
             )}
 
             {!recording && !mediaBlob && !errorMsg && !isInitializing && (
@@ -276,26 +385,8 @@ const StudioView: React.FC = () => {
 
             {isInitializing && <div className="absolute inset-0 bg-slate-950/80 flex flex-col items-center justify-center gap-3 z-30">
               <div className="w-8 h-8 border-4 border-indigo-500/30 border-t-indigo-500 rounded-full animate-spin" />
-              <p className="text-[10px] text-indigo-400 font-bold uppercase tracking-widest">正在连接硬件传感器...</p>
+              <p className="text-[10px] text-indigo-400 font-bold uppercase tracking-widest">正在初始化传感器...</p>
             </div>}
-
-            {errorMsg && (
-              <div className="absolute inset-0 bg-slate-950/95 p-10 flex flex-col items-center justify-center text-center z-40">
-                <div className="w-14 h-14 bg-red-500/10 text-red-500 rounded-full flex items-center justify-center mb-6 text-2xl">⚠️</div>
-                <p className="text-xs text-red-400 font-bold leading-relaxed max-w-[280px]">{errorMsg}</p>
-                <div className="mt-8 grid grid-cols-2 gap-3 w-full max-w-[280px]">
-                  <div className="p-3 bg-slate-900 rounded-xl border border-white/5">
-                    <p className="text-[8px] text-slate-500 uppercase font-black mb-1">物理检查</p>
-                    <p className="text-[10px] text-slate-300">确保摄像头推拉窗开启，按 F8 激活权限。</p>
-                  </div>
-                  <div className="p-3 bg-slate-900 rounded-xl border border-white/5">
-                    <p className="text-[8px] text-slate-500 uppercase font-black mb-1">环境检查</p>
-                    <p className="text-[10px] text-slate-300">如果使用外接屏，请保持笔记本盖子处于开启状态。</p>
-                  </div>
-                </div>
-                <button onClick={() => startMedia(activeTab as any)} className="mt-8 bg-indigo-600 text-white px-8 py-2 rounded-xl text-[10px] font-black uppercase">重新检测设备</button>
-              </div>
-            )}
 
             {recording && <button onClick={stopMedia} className="absolute bottom-8 left-1/2 -translate-x-1/2 bg-red-600 hover:bg-red-500 text-white px-10 py-3 rounded-2xl font-black text-xs uppercase tracking-widest shadow-2xl transition-all active:scale-95 border-b-4 border-red-800 z-50">
               停止并保存
