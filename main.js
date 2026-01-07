@@ -7,9 +7,13 @@ let tray = null;
 let lastClipboardText = "";
 let isQuitting = false;
 
-// 解决硬件访问权限和自动播放政策
-app.commandLine.appendSwitch('use-fake-ui-for-media-stream'); // 自动跳过权限确认
+// 解决硬件访问权限和多显示器环境下的硬件加速冲突
+app.commandLine.appendSwitch('use-fake-ui-for-media-stream'); 
 app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
+app.commandLine.appendSwitch('disable-features', 'PreloadMediaEngagementData,AutoplayIgnoreWebAudio');
+// 针对外接显示器/多GPU环境的优化
+app.commandLine.appendSwitch('enable-features', 'WebRtcHideLocalIpsWithMdns,VideoFullscreenOrientationLock');
+app.commandLine.appendSwitch('disable-gpu-sandbox'); // 有时沙盒限制会导致外设访问黑屏
 
 const gotTheLock = app.requestSingleInstanceLock();
 if (!gotTheLock) {
@@ -59,26 +63,19 @@ if (!gotTheLock) {
         contextIsolation: false,
         webSecurity: false,
         backgroundThrottling: false,
+        allowRunningInsecureContent: true,
       }
     });
 
-    // 强化权限处理
     const ses = session.defaultSession;
     
-    // 处理通用权限请求
     ses.setPermissionRequestHandler((webContents, permission, callback) => {
-      const allowed = ['media', 'audioCapture', 'videoCapture', 'notifications', 'midiSysex', 'openExternal'];
-      if (allowed.includes(permission)) {
-        callback(true);
-      } else {
-        callback(false);
-      }
+      const allowed = ['media', 'audioCapture', 'videoCapture'];
+      callback(allowed.includes(permission));
     });
 
-    // 处理具体设备权限 (摄像头、麦克风)
-    ses.setDevicePermissionHandler((details) => {
-      return true; // 允许所有硬件设备连接
-    });
+    ses.setPermissionCheckHandler(() => true);
+    ses.setDevicePermissionHandler(() => true);
 
     if (app.isPackaged) {
       mainWindow.loadFile(path.join(__dirname, 'dist/index.html'));
@@ -93,7 +90,6 @@ if (!gotTheLock) {
       }
     });
 
-    // 剪贴板监听
     setInterval(() => {
       const text = clipboard.readText().trim();
       if (text && text !== lastClipboardText) {
