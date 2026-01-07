@@ -1,5 +1,5 @@
 
-const { app, BrowserWindow, clipboard, ipcMain, Tray, Menu, nativeImage, session } = require('electron');
+const { app, BrowserWindow, clipboard, ipcMain, Tray, Menu, nativeImage, session, screen } = require('electron');
 const path = require('path');
 
 let mainWindow = null;
@@ -7,13 +7,21 @@ let tray = null;
 let lastClipboardText = "";
 let isQuitting = false;
 
-// 解决硬件访问权限和多显示器环境下的硬件加速冲突
+// 硬件与环境优化开关
 app.commandLine.appendSwitch('use-fake-ui-for-media-stream'); 
 app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
 app.commandLine.appendSwitch('disable-features', 'PreloadMediaEngagementData,AutoplayIgnoreWebAudio');
-// 针对外接显示器/多GPU环境的优化
 app.commandLine.appendSwitch('enable-features', 'WebRtcHideLocalIpsWithMdns,VideoFullscreenOrientationLock');
-app.commandLine.appendSwitch('disable-gpu-sandbox'); // 有时沙盒限制会导致外设访问黑屏
+app.commandLine.appendSwitch('disable-gpu-sandbox'); 
+
+function setAutoStart() {
+  if (app.isPackaged) {
+    app.setLoginItemSettings({
+      openAtLogin: true,
+      path: app.getPath('exe')
+    });
+  }
+}
 
 const gotTheLock = app.requestSingleInstanceLock();
 if (!gotTheLock) {
@@ -31,7 +39,7 @@ if (!gotTheLock) {
   ipcMain.on('window-close', () => { if (mainWindow) mainWindow.hide(); });
 
   function getAppIcon() {
-    const b64 = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAABGdBTUEAALGPC/xhBQAAACBjSFJNAAB6JgAAgIQAAPoAAACA6AAAdTAAAOpgAAA6mAAAF3CculE8AAAACXBIWXMAAAsTAAALEwEAmpwYAAABNmlUWHRYTUw6Y29tLmFkb2JlLnhtcAAAAAAAPD94cGFja2V0IGJlZ2luPSLvu78iIGlkPSJXNU0wTXBDZWhpSHpyZVN6TlRjemtjOWQiPz4gPHg6eG1wbWV0YSB4bWxuczp4PSJhZG9iZTpuczptZXRhLyIgeDp4bXB0az0iQWRvYmUgWE1QIENvcmUgNS42LWMxNDAgNzkuMTYwNDUxLCAyMDE3LzA1LzA2LTAxOjA4OjIxICAgICAgICAiPiA8cmRmOlJERiB4bWxuczpyZGY9Imh0dHA6Ly93d3cudzMub3JnLzE5OTkvMDIvMjItcmRmLXN5bnRheC1ucyMiPiA8cmRmOkRlc2NyaXB0aW9uIHJkZjphYm91dD0iIi8+IDwvcmRmOlJERj4gPC94OnhtcG1ldGE+IDw/eHBhY2tldCBlbmQ9InciPz45uOfBAAAAZEVYSWZNTQAqAAAACAAFARIAAwAAAAEAAQAAARoABQAAAAEAAABKARsABQAAAAEAAABSASgAAwAAAAEAAgAAh2kABwAAAQAAAAByA6QAAwAAAAEAAQAAoAAABwAAAAQwMjEw6hwF6QAAAD9JREFUOBFjYBgFoyEwGgKjITAgIQAAIf8AAbOfmY0AAAAASUVORK5CYII=';
+    const b64 = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAABGdBTUEAALGPC/xhBQAAACBjSFJNAAB6JgAAgIQAAPoAAACA6AAAdTAAAOpgAAA6mAAAF3CculE8AAAACXBIWXMAAAsTAAALEwEAmpwYAAABNmlUWHRYTUw6Y29tLmFkb2JlLnhtcAAAAAAAPD94cGFja2V0IGJlZ2luPSLvu78iIGlkPSJXNU0wTXBDZWhpSHpyZVN6TlRjemtjOWQiPz4gPHg6eG1wbWV0YSB4bWxuczp4PSJhZG9iZTpuczptZXRhLyIgeDp4bXB0az0iQWRvYmUgWE1QIENvcmUgNS42LWMxNDAgNzkuMTYwNDUxLCAyMDE3LzA1LzA2LDAxOjA4OjIxICAgICAgICAiPiA8cmRmOlJERiB4bWxuczpyZGY9Imh0dHA6Ly93d3cudzMub3JnLzE5OTkvMDIvMjItcmRmLXN5bnRheC1ucyMiPiA8cmRmOkRlc2NyaXB0aW9uIHJkZjphYm91dD0iIi8+IDwvcmRmOlJERj4gPC94OnhtcG1ldGE+IDw/eHBhY2tldCBlbmQ9InciPz45uOfBAAAAZEVYSWZNTQAqAAAACAAFARIAAwAAAAEAAQAAARoABQAAAAEAAABKARsABQAAAAEAAABSASgAAwAAAAEAAgAAh2kABwAAAQAAAAByA6QAAwAAAAEAAQAAoAAABwAAAAQwMjEw6hwF6QAAAD9JREFUOBFjYBgFoyEwGgKjITAgIQAAIf8AAbOfmY0AAAAASUVORK5CYII=';
     return nativeImage.createFromDataURL(b64);
   }
 
@@ -51,12 +59,20 @@ if (!gotTheLock) {
   }
 
   function createWindow() {
+    const { width: screenWidth, height: screenHeight } = screen.getPrimaryDisplay().workAreaSize;
+    const winWidth = 420;
+    const winHeight = 650;
+
     mainWindow = new BrowserWindow({
-      width: 420,
-      height: 650,
+      width: winWidth,
+      height: winHeight,
+      x: screenWidth - winWidth - 20, // 初始位置右侧留 20px 边距
+      y: (screenHeight - winHeight) / 2, // 垂直居中
       frame: false,
       alwaysOnTop: true,
       transparent: true,
+      resizable: false,
+      show: false,
       backgroundColor: '#00000000',
       webPreferences: {
         nodeIntegration: true,
@@ -68,9 +84,8 @@ if (!gotTheLock) {
     });
 
     const ses = session.defaultSession;
-    
     ses.setPermissionRequestHandler((webContents, permission, callback) => {
-      const allowed = ['media', 'audioCapture', 'videoCapture'];
+      const allowed = ['media', 'audioCapture', 'videoCapture', 'clipboard-read'];
       callback(allowed.includes(permission));
     });
 
@@ -83,6 +98,10 @@ if (!gotTheLock) {
       mainWindow.loadURL('http://localhost:5173');
     }
 
+    mainWindow.once('ready-to-show', () => {
+      mainWindow.show();
+    });
+
     mainWindow.on('close', (e) => {
       if (!isQuitting) {
         e.preventDefault();
@@ -90,6 +109,7 @@ if (!gotTheLock) {
       }
     });
 
+    // 持续监听剪贴板逻辑
     setInterval(() => {
       const text = clipboard.readText().trim();
       if (text && text !== lastClipboardText) {
@@ -102,5 +122,6 @@ if (!gotTheLock) {
   app.whenReady().then(() => {
     createWindow();
     createTray();
+    setAutoStart();
   });
 }

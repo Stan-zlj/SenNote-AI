@@ -38,7 +38,7 @@
       "target": [
         "dir"
       ],
-      "icon": "https://cdn-icons-png.flaticon.com/512/566/566437.png"
+      "icon": "build/icon.ico"
     },
     "files": [
       "dist/**/*",
