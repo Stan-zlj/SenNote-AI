@@ -5,6 +5,15 @@ const getAIClient = () => {
   return new GoogleGenAI({ apiKey: process.env.API_KEY });
 };
 
+export const fastQuery = async (prompt: string) => {
+  const ai = getAIClient();
+  const response = await ai.models.generateContent({
+    model: 'gemini-flash-lite-latest',
+    contents: prompt,
+  });
+  return response.text;
+};
+
 export const quickQuery = async (prompt: string) => {
   const ai = getAIClient();
   const response = await ai.models.generateContent({
@@ -14,7 +23,6 @@ export const quickQuery = async (prompt: string) => {
   return response.text;
 };
 
-// Fix: Added missing deepAnalysis function for document and multimodal analysis using Pro model
 export const deepAnalysis = async (parts: any[]) => {
   const ai = getAIClient();
   const response = await ai.models.generateContent({
@@ -24,7 +32,14 @@ export const deepAnalysis = async (parts: any[]) => {
   return response.text;
 };
 
-// Fix: Added missing speakText function for Text-to-Speech using the specialized TTS model
+export const createChat = (systemInstruction?: string) => {
+  const ai = getAIClient();
+  return ai.chats.create({
+    model: 'gemini-3-pro-preview',
+    config: { systemInstruction }
+  });
+};
+
 export const speakText = async (text: string) => {
   const ai = getAIClient();
   const response = await ai.models.generateContent({
@@ -64,12 +79,41 @@ export const generateMindMap = async (topic: string) => {
   }
 };
 
-export const translateText = async (text: string, targetLang: string = "Chinese") => {
-  const ai = getAIClient();
-  const prompt = `Translate to ${targetLang}: "${text}"`;
-  const response = await ai.models.generateContent({
-    model: 'gemini-3-flash-preview',
-    contents: prompt,
-  });
-  return response.text;
-};
+// Base64 Helpers
+export function encode(bytes: Uint8Array) {
+  let binary = '';
+  const len = bytes.byteLength;
+  for (let i = 0; i < len; i++) {
+    binary += String.fromCharCode(bytes[i]);
+  }
+  return btoa(binary);
+}
+
+export function decode(base64: string) {
+  const binaryString = atob(base64);
+  const len = binaryString.length;
+  const bytes = new Uint8Array(len);
+  for (let i = 0; i < len; i++) {
+    bytes[i] = binaryString.charCodeAt(i);
+  }
+  return bytes;
+}
+
+export async function decodeAudioData(
+  data: Uint8Array,
+  ctx: AudioContext,
+  sampleRate: number,
+  numChannels: number,
+): Promise<AudioBuffer> {
+  const dataInt16 = new Int16Array(data.buffer);
+  const frameCount = dataInt16.length / numChannels;
+  const buffer = ctx.createBuffer(numChannels, frameCount, sampleRate);
+
+  for (let channel = 0; channel < numChannels; channel++) {
+    const channelData = buffer.getChannelData(channel);
+    for (let i = 0; i < frameCount; i++) {
+      channelData[i] = dataInt16[i * numChannels + channel] / 32768.0;
+    }
+  }
+  return buffer;
+}

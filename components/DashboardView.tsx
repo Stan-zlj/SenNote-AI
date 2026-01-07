@@ -1,5 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
+import { fastQuery } from '../services/geminiService';
 
 interface DashboardProps {
   timerSeconds: number;
@@ -12,11 +13,28 @@ const DashboardView: React.FC<DashboardProps> = ({ timerSeconds, setTimerSeconds
   const [time, setTime] = useState(new Date());
   const [inputHours, setInputHours] = useState(0);
   const [inputMinutes, setInputMinutes] = useState(0);
+  const [quickInput, setQuickInput] = useState('');
+  const [quickResult, setQuickResult] = useState('');
+  const [isFastLoading, setIsFastLoading] = useState(false);
 
   useEffect(() => {
     const timer = setInterval(() => setTime(new Date()), 1000);
     return () => clearInterval(timer);
   }, []);
+
+  const handleFastAsk = async () => {
+    if (!quickInput.trim()) return;
+    setIsFastLoading(true);
+    setQuickResult('');
+    try {
+      const res = await fastQuery(quickInput);
+      setQuickResult(res || '未收到回复');
+    } catch (e) {
+      setQuickResult('查询失败，请检查配置。');
+    } finally {
+      setIsFastLoading(false);
+    }
+  };
 
   const formatDate = (d: Date) => {
     const y = d.getFullYear();
@@ -41,14 +59,42 @@ const DashboardView: React.FC<DashboardProps> = ({ timerSeconds, setTimerSeconds
   };
 
   return (
-    <div className="flex flex-col items-center justify-center h-full space-y-10 animate-in fade-in duration-700">
-      <div className="text-center space-y-3">
-        <div className="text-slate-400 text-sm font-black tracking-[0.4em] uppercase">
+    <div className="flex flex-col items-center justify-start h-full space-y-8 animate-in fade-in duration-700 pt-4">
+      <div className="text-center space-y-1">
+        <div className="text-slate-400 text-[10px] font-black tracking-[0.4em] uppercase">
           {formatDate(time)}
         </div>
-        <div className="text-7xl font-black text-white tabular-nums tracking-tighter drop-shadow-2xl">
+        <div className="text-5xl font-black text-white tabular-nums tracking-tighter drop-shadow-2xl">
           {time.toLocaleTimeString('zh-CN', { hour12: false })}
         </div>
+      </div>
+
+      <div className="w-full bg-slate-800/40 border border-white/10 p-5 rounded-[32px] shadow-2xl backdrop-blur-xl space-y-4">
+        <div className="flex items-center gap-2 mb-1">
+          <div className="w-2 h-2 rounded-full bg-yellow-400 animate-pulse" />
+          <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">极速闪回 (Flash Lite)</span>
+        </div>
+        <div className="flex gap-2">
+          <input 
+            value={quickInput}
+            onChange={e => setQuickInput(e.target.value)}
+            onKeyDown={e => e.key === 'Enter' && handleFastAsk()}
+            placeholder="极速提问..." 
+            className="flex-1 bg-slate-900/60 border border-white/5 rounded-2xl px-4 py-2.5 text-xs text-white outline-none focus:ring-1 focus:ring-yellow-500/50"
+          />
+          <button 
+            onClick={handleFastAsk}
+            disabled={isFastLoading || !quickInput.trim()}
+            className="bg-slate-700 hover:bg-slate-600 px-4 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all"
+          >
+            {isFastLoading ? '⚡' : 'Ask'}
+          </button>
+        </div>
+        {quickResult && (
+          <div className="p-4 bg-slate-900/80 rounded-2xl border border-white/5 text-[11px] leading-relaxed text-slate-300 max-h-32 overflow-y-auto custom-scrollbar">
+            {quickResult}
+          </div>
+        )}
       </div>
 
       <div className="w-full max-w-[320px] bg-slate-800/40 border border-white/10 p-8 rounded-[48px] flex flex-col items-center space-y-6 shadow-2xl backdrop-blur-xl relative group">

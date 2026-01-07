@@ -6,6 +6,8 @@ import NoteView from './components/NoteView';
 import StudioView from './components/StudioView';
 import MindMapView from './components/MindMapView';
 import DashboardView from './components/DashboardView';
+import ChatBotView from './components/ChatBotView';
+import LiveChatView from './components/LiveChatView';
 
 const getIpc = () => {
   if (typeof window !== 'undefined' && (window as any).require) {
@@ -64,17 +66,14 @@ const App: React.FC = () => {
 
   return (
     <div className="flex h-screen bg-slate-900 text-slate-100 overflow-hidden relative border border-white/10 rounded-2xl shadow-2xl">
-      {/* 拖拽背景：z-0 */}
       <div style={{ WebkitAppRegion: 'drag' } as any} className="absolute top-0 left-0 right-0 h-12 z-0 cursor-move" />
       
-      {/* 顶栏控制层：z-50，确保按钮不受拖拽区域干扰 */}
       <div className="absolute top-0 left-0 right-0 h-12 flex justify-between items-center px-4 z-50 pointer-events-none">
         <div className="flex items-center gap-2">
           <div className="w-2 h-2 rounded-full bg-indigo-500 animate-pulse"></div>
           <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">ZenNote AI</span>
         </div>
         
-        {/* 关键修复：增加 WebkitAppRegion: 'no-drag' */}
         <div className="flex space-x-3 items-center pointer-events-auto" style={{ WebkitAppRegion: 'no-drag' } as any}>
            <button 
              onClick={handleMin}
@@ -98,6 +97,8 @@ const App: React.FC = () => {
         {activeView === ViewMode.NOTES && (
           <NoteView notes={notes} onAddNote={(c, t) => setNotesState([{id: Date.now().toString(), content: c, createdAt: Date.now(), tags: t}, ...notes])} setNotes={setNotesState} onUndo={()=>{}} onRedo={()=>{}} canUndo={false} canRedo={false} />
         )}
+        {activeView === ViewMode.CHAT && <ChatBotView />}
+        {activeView === ViewMode.LIVE && <LiveChatView />}
         {activeView === ViewMode.STUDIO && <StudioView />}
         {activeView === ViewMode.MINDMAP && <MindMapView />}
       </main>

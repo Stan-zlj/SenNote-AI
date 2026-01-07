@@ -11,7 +11,6 @@ export interface Note {
   };
 }
 
-// Fix: Added missing Book interface for ReaderView
 export interface Book {
   id: string;
   title: string;
@@ -21,7 +20,6 @@ export interface Book {
   mediaUrl: string;
 }
 
-// Fix: Added missing DailyCheckIn interface for ProgressView
 export interface DailyCheckIn {
   date: string;
 }
@@ -35,7 +33,9 @@ export enum ViewMode {
   DASHBOARD = 'dashboard',
   NOTES = 'notes',
   STUDIO = 'studio',
-  MINDMAP = 'mindmap'
+  MINDMAP = 'mindmap',
+  CHAT = 'chat',
+  LIVE = 'live'
 }
 
 export type AspectRatio = "1:1" | "3:4" | "4:3" | "9:16" | "16:9";

@@ -1,7 +1,8 @@
 
 import React, { useState, useEffect } from 'react';
 import { Note } from '../types';
-import { translateText } from '../services/geminiService';
+
+// Removed unused import: import { translateText } from '../services/geminiService';
 
 interface NoteViewProps {
   notes: Note[];
