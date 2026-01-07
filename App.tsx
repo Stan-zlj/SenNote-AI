@@ -70,19 +70,19 @@ const App: React.FC = () => {
       
       <div className="absolute top-0 left-0 right-0 h-12 flex justify-between items-center px-4 z-50 pointer-events-none">
         <div className="flex items-center gap-2">
-          <div className="w-2 h-2 rounded-full bg-indigo-500 animate-pulse"></div>
-          <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">ZenNote AI</span>
+          <div className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-pulse"></div>
+          <span className="text-[9px] font-black text-slate-400 uppercase tracking-[0.3em]">ZenNote AI</span>
         </div>
         
         <div className="flex space-x-3 items-center pointer-events-auto" style={{ WebkitAppRegion: 'no-drag' } as any}>
            <button 
              onClick={handleMin}
-             className="w-3.5 h-3.5 rounded-full bg-yellow-500/80 hover:brightness-110 active:scale-90 transition-all"
+             className="w-3 h-3 rounded-full bg-yellow-500/80 hover:brightness-110 active:scale-90 transition-all shadow-lg"
              title="最小化"
            />
            <button 
              onClick={handleClose}
-             className="w-3.5 h-3.5 rounded-full bg-red-500/80 hover:brightness-110 active:scale-90 transition-all"
+             className="w-3 h-3 rounded-full bg-red-500/80 hover:brightness-110 active:scale-90 transition-all shadow-lg"
              title="隐藏到托盘"
            />
         </div>
@@ -90,17 +90,20 @@ const App: React.FC = () => {
 
       <Sidebar activeView={activeView} setActiveView={setActiveView} />
 
-      <main className="flex-1 overflow-y-auto pt-14 pb-4 px-6 custom-scrollbar bg-gradient-to-br from-slate-900 to-indigo-950/20">
-        {activeView === ViewMode.DASHBOARD && (
-          <DashboardView timerSeconds={timerSeconds} setTimerSeconds={setTimerSeconds} isRunning={isTimerRunning} setIsRunning={setIsTimerRunning} />
-        )}
-        {activeView === ViewMode.NOTES && (
-          <NoteView notes={notes} onAddNote={(c, t) => setNotesState([{id: Date.now().toString(), content: c, createdAt: Date.now(), tags: t}, ...notes])} setNotes={setNotesState} onUndo={()=>{}} onRedo={()=>{}} canUndo={false} canRedo={false} />
-        )}
-        {activeView === ViewMode.CHAT && <ChatBotView />}
-        {activeView === ViewMode.LIVE && <LiveChatView />}
-        {activeView === ViewMode.STUDIO && <StudioView />}
-        {activeView === ViewMode.MINDMAP && <MindMapView />}
+      {/* 核心容器：使用 flex-1 和 overflow-hidden 确保子组件能继承高度 */}
+      <main className="flex-1 flex flex-col pt-14 pb-4 px-6 overflow-hidden bg-gradient-to-br from-slate-900 to-indigo-950/20">
+        <div className="flex-1 overflow-y-auto custom-scrollbar min-h-0">
+          {activeView === ViewMode.DASHBOARD && (
+            <DashboardView timerSeconds={timerSeconds} setTimerSeconds={setTimerSeconds} isRunning={isTimerRunning} setIsRunning={setIsTimerRunning} />
+          )}
+          {activeView === ViewMode.NOTES && (
+            <NoteView notes={notes} onAddNote={(c, t) => setNotesState([{id: Date.now().toString(), content: c, createdAt: Date.now(), tags: t}, ...notes])} setNotes={setNotesState} onUndo={()=>{}} onRedo={()=>{}} canUndo={false} canRedo={false} />
+          )}
+          {activeView === ViewMode.CHAT && <ChatBotView />}
+          {activeView === ViewMode.LIVE && <LiveChatView />}
+          {activeView === ViewMode.STUDIO && <StudioView />}
+          {activeView === ViewMode.MINDMAP && <MindMapView />}
+        </div>
       </main>
     </div>
   );
