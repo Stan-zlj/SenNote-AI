@@ -24,20 +24,34 @@ const App: React.FC = () => {
   
   const [timerSeconds, setTimerSeconds] = useState(0);
   const [isTimerRunning, setIsTimerRunning] = useState(false);
-  const [notes, setNotesState] = useState<Note[]>(() => {
-    const saved = localStorage.getItem('zen_notes');
-    return saved ? JSON.parse(saved) : [];
-  });
+  const [notes, setNotesState] = useState<Note[]>([]);
 
+  // 【物理加载】启动时从磁盘加载 TXT 文件
+  useEffect(() => {
+    const loadPhysicalNotes = async () => {
+      if (ipc) {
+        const diskNotes = await ipc.invoke('get-notes');
+        setNotesState(diskNotes || []);
+      }
+    };
+    loadPhysicalNotes();
+  }, [ipc]);
+
+  // 【实时同步】剪贴板捕获并立即物理保存
   useEffect(() => {
     if (ipc) {
       const handleClipboard = (_event: any, text: string) => {
         setNotesState(prev => {
           if (prev.length > 0 && prev[0].content === text) return prev;
-          const newNote: Note = { id: Date.now().toString(), content: text, createdAt: Date.now(), tags: ['剪贴板'] };
-          const updated = [newNote, ...prev];
-          localStorage.setItem('zen_notes', JSON.stringify(updated));
-          return updated;
+          const newNote: Note = { 
+            id: Date.now().toString(), 
+            content: text, 
+            createdAt: Date.now(), 
+            tags: ['剪贴板'] 
+          };
+          // 立即通知主进程写入物理磁盘
+          ipc.send('save-note', newNote);
+          return [newNote, ...prev];
         });
       };
       ipc.on('clipboard-sync', handleClipboard);
@@ -45,6 +59,7 @@ const App: React.FC = () => {
     }
   }, [ipc]);
 
+  // 专注时钟逻辑
   useEffect(() => {
     let timer: any;
     if (isTimerRunning && timerSeconds > 0) {
@@ -61,8 +76,28 @@ const App: React.FC = () => {
     return () => clearInterval(timer);
   }, [isTimerRunning, timerSeconds]);
 
-  const handleMin = () => ipc ? ipc.send('window-min') : console.log("Min");
-  const handleClose = () => ipc ? ipc.send('window-close') : console.log("Hide");
+  const handleAddNote = (content: string, tags: string[]) => {
+    const newNote: Note = { id: Date.now().toString(), content, createdAt: Date.now(), tags };
+    setNotesState(prev => [newNote, ...prev]);
+    if (ipc) ipc.send('save-note', newNote);
+  };
+
+  const handleDeleteNote = (id: string) => {
+    setNotesState(prev => prev.filter(n => n.id !== id));
+    if (ipc) ipc.send('delete-note', id);
+  };
+
+  const handleUpdateNote = (updatedNotes: Note[] | ((prev: Note[]) => Note[])) => {
+    // 逻辑简化：在 NoteView 编辑后会单独触发 save-note
+    if (typeof updatedNotes === 'function') {
+      setNotesState(prev => updatedNotes(prev));
+    } else {
+      setNotesState(updatedNotes);
+    }
+  };
+
+  const handleMin = () => ipc ? ipc.send('window-min') : null;
+  const handleClose = () => ipc ? ipc.send('window-close') : null;
 
   return (
     <div className="flex h-screen bg-slate-900 text-slate-100 overflow-hidden relative border border-white/10 rounded-2xl shadow-2xl">
@@ -75,29 +110,30 @@ const App: React.FC = () => {
         </div>
         
         <div className="flex space-x-3 items-center pointer-events-auto" style={{ WebkitAppRegion: 'no-drag' } as any}>
-           <button 
-             onClick={handleMin}
-             className="w-3 h-3 rounded-full bg-yellow-500/80 hover:brightness-110 active:scale-90 transition-all shadow-lg"
-             title="最小化"
-           />
-           <button 
-             onClick={handleClose}
-             className="w-3 h-3 rounded-full bg-red-500/80 hover:brightness-110 active:scale-90 transition-all shadow-lg"
-             title="隐藏到托盘"
-           />
+           <button onClick={handleMin} className="w-3 h-3 rounded-full bg-yellow-500/80 hover:brightness-110 active:scale-90 transition-all" />
+           <button onClick={handleClose} className="w-3 h-3 rounded-full bg-red-500/80 hover:brightness-110 active:scale-90 transition-all" />
         </div>
       </div>
 
       <Sidebar activeView={activeView} setActiveView={setActiveView} />
 
-      {/* 核心容器：使用 flex-1 和 overflow-hidden 确保子组件能继承高度 */}
       <main className="flex-1 flex flex-col pt-14 pb-4 px-6 overflow-hidden bg-gradient-to-br from-slate-900 to-indigo-950/20">
-        <div className="flex-1 overflow-y-auto custom-scrollbar min-h-0">
+        <div className="flex-1 flex flex-col overflow-hidden min-h-0">
           {activeView === ViewMode.DASHBOARD && (
-            <DashboardView timerSeconds={timerSeconds} setTimerSeconds={setTimerSeconds} isRunning={isTimerRunning} setIsRunning={setIsTimerRunning} />
+            <div className="flex-1 overflow-y-auto custom-scrollbar">
+              <DashboardView timerSeconds={timerSeconds} setTimerSeconds={setTimerSeconds} isRunning={isTimerRunning} setIsRunning={setIsTimerRunning} />
+            </div>
           )}
           {activeView === ViewMode.NOTES && (
-            <NoteView notes={notes} onAddNote={(c, t) => setNotesState([{id: Date.now().toString(), content: c, createdAt: Date.now(), tags: t}, ...notes])} setNotes={setNotesState} onUndo={()=>{}} onRedo={()=>{}} canUndo={false} canRedo={false} />
+            <div className="flex-1 overflow-y-auto custom-scrollbar">
+              <NoteView 
+                notes={notes} 
+                onAddNote={handleAddNote} 
+                setNotes={handleUpdateNote} 
+                onDeleteNote={handleDeleteNote}
+                onUndo={()=>{}} onRedo={()=>{}} canUndo={false} canRedo={false} 
+              />
+            </div>
           )}
           {activeView === ViewMode.CHAT && <ChatBotView />}
           {activeView === ViewMode.LIVE && <LiveChatView />}

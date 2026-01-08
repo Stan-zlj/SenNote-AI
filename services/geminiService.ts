@@ -5,13 +5,28 @@ const getAIClient = () => {
   return new GoogleGenAI({ apiKey: process.env.API_KEY });
 };
 
+/**
+ * 极速闪回：专注于极低延迟的简短回答
+ */
 export const fastQuery = async (prompt: string) => {
   const ai = getAIClient();
-  const response = await ai.models.generateContent({
-    model: 'gemini-flash-lite-latest',
-    contents: prompt,
-  });
-  return response.text;
+  try {
+    const response = await ai.models.generateContent({
+      model: 'gemini-3-flash-preview',
+      contents: prompt,
+      config: {
+        // 对于“极速”场景，禁用思考过程（thinkingBudget: 0）可显著减少延迟并避免冲突
+        thinkingConfig: { thinkingBudget: 0 },
+        temperature: 0.2, // 较低的随机性，适合事实性查询
+        maxOutputTokens: 500,
+      }
+    });
+    return response.text;
+  } catch (error: any) {
+    console.error("Gemini FastQuery Error:", error);
+    // 抛出更有意义的错误信息
+    throw new Error(error.message || "API 调用超时或配置有误");
+  }
 };
 
 export const quickQuery = async (prompt: string) => {
@@ -61,25 +76,21 @@ export const generateMindMap = async (topic: string) => {
   const ai = getAIClient();
   const prompt = `Generate a hierarchical mind map structure for the topic: "${topic}". 
   Return ONLY a raw JSON object with this structure: { "label": "string", "children": [ { "label": "string", "children": [] } ] }.
-  Depth should be at least 3 levels. Avoid extra text or markdown formatting outside the JSON.`;
+  Avoid extra text or markdown formatting outside the JSON.`;
   
   const response = await ai.models.generateContent({
     model: 'gemini-3-flash-preview',
     contents: prompt,
-    config: {
-      responseMimeType: "application/json"
-    }
+    config: { responseMimeType: "application/json" }
   });
   
   try {
-    return JSON.parse(response.text);
+    return JSON.parse(response.text || '{}');
   } catch (e) {
-    console.error("Failed to parse mind map JSON", e);
     return null;
   }
 };
 
-// Base64 Helpers
 export function encode(bytes: Uint8Array) {
   let binary = '';
   const len = bytes.byteLength;

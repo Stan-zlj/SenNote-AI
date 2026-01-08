@@ -1,19 +1,27 @@
 
 const { app, BrowserWindow, clipboard, ipcMain, Tray, Menu, nativeImage, session, screen } = require('electron');
 const path = require('path');
+const fs = require('fs');
 
 let mainWindow = null;
 let tray = null;
 let lastClipboardText = "";
 let isQuitting = false;
 
-// Hardware and environment optimizations
+// 笔记存储路径：用户数据目录下的 notes 文件夹
+const NOTES_DIR = path.join(app.getPath('userData'), 'notes');
+
+// 确保存储目录物理存在
+if (!fs.existsSync(NOTES_DIR)) {
+  fs.mkdirSync(NOTES_DIR, { recursive: true });
+}
+
+// 硬件加速与媒体权限优化
 app.commandLine.appendSwitch('use-fake-ui-for-media-stream'); 
 app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
-app.commandLine.appendSwitch('disable-features', 'PreloadMediaEngagementData,AutoplayIgnoreWebAudio');
-app.commandLine.appendSwitch('enable-features', 'WebRtcHideLocalIpsWithMdns,VideoFullscreenOrientationLock');
 app.commandLine.appendSwitch('disable-gpu-sandbox'); 
 
+// 开机自启动配置
 function setAutoStart() {
   if (app.isPackaged) {
     app.setLoginItemSettings({
@@ -23,7 +31,7 @@ function setAutoStart() {
   }
 }
 
-// Ensure single instance of the application
+// 单例模式确保只有一个窗口
 const gotTheLock = app.requestSingleInstanceLock();
 if (!gotTheLock) {
   app.quit();
@@ -36,76 +44,73 @@ if (!gotTheLock) {
     }
   });
 
-  // IPC handlers for window controls from React
-  ipcMain.on('window-min', () => { 
-    if (mainWindow) mainWindow.minimize(); 
-  });
-  
-  ipcMain.on('window-close', () => { 
-    if (mainWindow) mainWindow.hide(); // Hide to tray instead of closing
+  // 【核心功能】IPC 处理器：保存笔记到物理 TXT 文件
+  ipcMain.on('save-note', (event, note) => {
+    const filePath = path.join(NOTES_DIR, `note_${note.id}.txt`);
+    const fileContent = `ID: ${note.id}\nTAGS: ${note.tags.join(', ')}\nCREATED_AT: ${note.createdAt}\n--------------------------------\n${note.content}`;
+    fs.writeFile(filePath, fileContent, 'utf8', (err) => {
+      if (err) console.error("[Disk Error] Failed to save TXT:", err);
+    });
   });
 
-  /**
-   * Generates a base64 placeholder icon for the tray if no local icon is found.
-   * This ensures the tray doesn't appear empty or error out.
-   */
-  function getAppIcon() {
-    // A simple blue/indigo square representing ZenNote AI
-    const b64 = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAABGdBTUEAALGPC/xhBQAAACBjSFJNAAB6JgAAgIQAAPoAAACA6AAAdTAAAOpgAAA6mAAAF3CculE8AAAACXBIWXMAAAsTAAALEwEAmpwYAAABNmlUWHRYTUw6Y29tLmFkb2JlLnhtcAAAAAAAPD94cGFja2V0IGJlZ2luPSLvu78iIGlkPSJXNU0wTXBDZWhpSHpyZVN6TlRjemtjOWQiPz4gPHg6eG1wbWV0YSB4bWxuczp4PSJhZG9iZTpuczptZXRhLyIgeDp4bXB0az0iQWRvYmUgWE1QIENvcmUgNS42LWMxNDAgNzkuMTYwNDUxLCAyMDE3LzA1LzA2LTAxOjA4OjIxICAgICAgICAiPiA8cmRmOlJERiB4bWxuczpyZGY9Imh0dHA6Ly93d3cudzMub3JnLzE5OTkvMDIvMjItcmRmLXN5bnRheC1ucyMiPiA8cmRmOkRlc2NyaXB0aW9uIHJkZjphYm91dD0iIi8+IDwvcmRmOlJERj4gPC94OnhtcG1ldGE+IDw/eHBhY2tldCBlbmQ9InciPz45uOfBAAAAZEVYSWZNTQAqAAAACAAFARIAAwAAAAEAAQAAARoABQAAAAEAAABKARsABQAAAAEAAABSASgAAwAAAAEAAgAAh2kABwAAAQAAAAByA6QAAwAAAAEAAQAAoAAABwAAAAQwMjEw6hwF6QAAAD9JREFUOBFjYBgFoyEwGgKjITAgIQAAIf8AAbOfmY0AAAAASUVORK5CYII=';
-    return nativeImage.createFromDataURL(b64);
-  }
+  // 【核心功能】IPC 处理器：从磁盘读取所有 TXT 笔记
+  ipcMain.handle('get-notes', async () => {
+    try {
+      if (!fs.existsSync(NOTES_DIR)) return [];
+      const files = fs.readdirSync(NOTES_DIR);
+      const notes = files
+        .filter(f => f.endsWith('.txt'))
+        .map(file => {
+          try {
+            const raw = fs.readFileSync(path.join(NOTES_DIR, file), 'utf8');
+            const [meta, ...contentParts] = raw.split('--------------------------------\n');
+            const metaLines = meta.split('\n');
+            
+            return {
+              id: metaLines[0].replace('ID: ', ''),
+              tags: metaLines[1].replace('TAGS: ', '').split(', ').filter(t => t),
+              createdAt: parseInt(metaLines[2].replace('CREATED_AT: ', '')),
+              content: contentParts.join('--------------------------------\n').trim()
+            };
+          } catch (e) {
+            console.error(`[Disk Error] Corrupted file: ${file}`);
+            return null;
+          }
+        })
+        .filter(n => n !== null)
+        .sort((a, b) => b.createdAt - a.createdAt);
+      return notes;
+    } catch (e) {
+      console.error("[Disk Error] Load notes failed:", e);
+      return [];
+    }
+  });
 
-  /**
-   * Initializes the system tray icon with a context menu and interactivity.
-   * Only one instance of the tray icon is created.
-   */
+  // 【核心功能】IPC 处理器：物理删除笔记文件
+  ipcMain.on('delete-note', (event, noteId) => {
+    const filePath = path.join(NOTES_DIR, `note_${noteId}.txt`);
+    if (fs.existsSync(filePath)) {
+      fs.unlinkSync(filePath);
+    }
+  });
+
+  ipcMain.on('window-min', () => { if (mainWindow) mainWindow.minimize(); });
+  ipcMain.on('window-close', () => { if (mainWindow) mainWindow.hide(); });
+
   function createTray() {
     if (tray) return; 
-    
-    const icon = getAppIcon();
+    const icon = nativeImage.createEmpty(); // 实际应使用资源图标
     tray = new Tray(icon);
-    
     const contextMenu = Menu.buildFromTemplate([
       { label: 'ZenNote AI', enabled: false },
       { type: 'separator' },
-      { 
-        label: 'Show Window', 
-        click: () => {
-          if (mainWindow) {
-            mainWindow.show();
-            mainWindow.focus();
-          }
-        } 
-      },
-      { 
-        label: 'Quit', 
-        click: () => { 
-          isQuitting = true; 
-          app.quit(); 
-        } 
-      }
+      { label: '显示窗口', click: () => { if (mainWindow) { mainWindow.show(); mainWindow.focus(); } } },
+      { label: '退出', click: () => { isQuitting = true; app.quit(); } }
     ]);
-    
-    tray.setToolTip('ZenNote AI - Study Companion');
     tray.setContextMenu(contextMenu);
-    
-    // Interactive: Toggle window visibility on tray click
     tray.on('click', () => {
       if (!mainWindow) return;
-      if (mainWindow.isVisible()) {
-        mainWindow.hide();
-      } else {
-        mainWindow.show();
-        mainWindow.focus();
-      }
-    });
-    
-    // Ensure window is shown and focused on double click
-    tray.on('double-click', () => {
-      if (mainWindow) {
-        mainWindow.show();
-        mainWindow.focus();
-      }
+      mainWindow.isVisible() ? mainWindow.hide() : (mainWindow.show(), mainWindow.focus());
     });
   }
 
@@ -117,7 +122,6 @@ if (!gotTheLock) {
     mainWindow = new BrowserWindow({
       width: winWidth,
       height: winHeight,
-      // Default position: Bottom-right corner of the screen
       x: screenWidth - winWidth - 20, 
       y: screenHeight - winHeight - 20, 
       frame: false,
@@ -125,25 +129,12 @@ if (!gotTheLock) {
       transparent: true,
       resizable: false,
       show: false,
-      backgroundColor: '#00000000',
       webPreferences: {
         nodeIntegration: true,
         contextIsolation: false,
-        webSecurity: false,
-        backgroundThrottling: false,
-        allowRunningInsecureContent: true,
+        webSecurity: false
       }
     });
-
-    // Permission handling for camera, mic, and clipboard
-    const ses = session.defaultSession;
-    ses.setPermissionRequestHandler((webContents, permission, callback) => {
-      const allowed = ['media', 'audioCapture', 'videoCapture', 'clipboard-read'];
-      callback(allowed.includes(permission));
-    });
-
-    ses.setPermissionCheckHandler(() => true);
-    ses.setDevicePermissionHandler(() => true);
 
     if (app.isPackaged) {
       mainWindow.loadFile(path.join(__dirname, 'dist/index.html'));
@@ -151,12 +142,8 @@ if (!gotTheLock) {
       mainWindow.loadURL('http://localhost:5173');
     }
 
-    // Resolve white flash issues by showing window only when ready
-    mainWindow.once('ready-to-show', () => {
-      mainWindow.show();
-    });
+    mainWindow.once('ready-to-show', () => mainWindow.show());
 
-    // Prevent application from closing completely when window 'close' is called
     mainWindow.on('close', (e) => {
       if (!isQuitting) {
         e.preventDefault();
@@ -164,7 +151,7 @@ if (!gotTheLock) {
       }
     });
 
-    // Background process to sync clipboard content into the note state
+    // 剪贴板轮询监听
     setInterval(() => {
       const text = clipboard.readText().trim();
       if (text && text !== lastClipboardText) {
@@ -178,20 +165,5 @@ if (!gotTheLock) {
     createWindow();
     createTray();
     setAutoStart();
-  });
-
-  // Ensure clean up of the tray icon on quit
-  app.on('will-quit', () => {
-    if (tray) {
-      tray.destroy();
-      tray = null;
-    }
-  });
-
-  // Quit when all windows are closed, except on macOS
-  app.on('window-all-closed', () => {
-    if (process.platform !== 'darwin') {
-      app.quit();
-    }
   });
 }
