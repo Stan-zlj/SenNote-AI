@@ -11,9 +11,7 @@ import LiveChatView from './components/LiveChatView';
 
 const getIpc = () => {
   if (typeof window !== 'undefined' && (window as any).require) {
-    try {
-      return (window as any).require('electron').ipcRenderer;
-    } catch (e) { return null; }
+    try { return (window as any).require('electron').ipcRenderer; } catch (e) { return null; }
   }
   return null;
 };
@@ -25,19 +23,19 @@ const App: React.FC = () => {
   const [timerSeconds, setTimerSeconds] = useState(0);
   const [isTimerRunning, setIsTimerRunning] = useState(false);
   const [notes, setNotesState] = useState<Note[]>([]);
+  const [topics, setTopics] = useState<string[]>(['未分类']);
 
-  // 【物理加载】启动时从磁盘加载 TXT 文件
   useEffect(() => {
-    const loadPhysicalNotes = async () => {
+    const loadData = async () => {
       if (ipc) {
-        const diskNotes = await ipc.invoke('get-notes');
-        setNotesState(diskNotes || []);
+        const data = await ipc.invoke('get-all-data');
+        setTopics(data.topics.length ? data.topics : ['未分类']);
+        setNotesState(data.notes || []);
       }
     };
-    loadPhysicalNotes();
+    loadData();
   }, [ipc]);
 
-  // 【实时同步】剪贴板捕获并立即物理保存
   useEffect(() => {
     if (ipc) {
       const handleClipboard = (_event: any, text: string) => {
@@ -47,10 +45,10 @@ const App: React.FC = () => {
             id: Date.now().toString(), 
             content: text, 
             createdAt: Date.now(), 
-            tags: ['剪贴板'] 
+            tags: ['剪贴板'],
+            topic: '未分类'
           };
-          // 立即通知主进程写入物理磁盘
-          ipc.send('save-note', newNote);
+          ipc.send('save-note', { note: newNote, topic: '未分类' });
           return [newNote, ...prev];
         });
       };
@@ -59,64 +57,37 @@ const App: React.FC = () => {
     }
   }, [ipc]);
 
-  // 专注时钟逻辑
-  useEffect(() => {
-    let timer: any;
-    if (isTimerRunning && timerSeconds > 0) {
-      timer = setInterval(() => {
-        setTimerSeconds(prev => {
-          if (prev <= 1) {
-            setIsTimerRunning(false);
-            return 0;
-          }
-          return prev - 1;
-        });
-      }, 1000);
-    }
-    return () => clearInterval(timer);
-  }, [isTimerRunning, timerSeconds]);
-
-  const handleAddNote = (content: string, tags: string[]) => {
-    const newNote: Note = { id: Date.now().toString(), content, createdAt: Date.now(), tags };
+  const handleAddNote = (content: string, tags: string[], topic: string) => {
+    const newNote: Note = { id: Date.now().toString(), content, createdAt: Date.now(), tags, topic };
     setNotesState(prev => [newNote, ...prev]);
-    if (ipc) ipc.send('save-note', newNote);
+    if (ipc) ipc.send('save-note', { note: newNote, topic });
   };
 
-  const handleDeleteNote = (id: string) => {
+  const handleDeleteNote = (id: string, topic: string) => {
     setNotesState(prev => prev.filter(n => n.id !== id));
-    if (ipc) ipc.send('delete-note', id);
+    if (ipc) ipc.send('delete-note', { noteId: id, topic });
   };
 
-  const handleUpdateNote = (updatedNotes: Note[] | ((prev: Note[]) => Note[])) => {
-    // 逻辑简化：在 NoteView 编辑后会单独触发 save-note
-    if (typeof updatedNotes === 'function') {
-      setNotesState(prev => updatedNotes(prev));
-    } else {
-      setNotesState(updatedNotes);
-    }
+  const handleDeleteTopic = (topic: string) => {
+    setTopics(prev => prev.filter(t => t !== topic));
+    setNotesState(prev => prev.filter(n => n.topic !== topic));
+    if (ipc) ipc.send('delete-topic', topic);
   };
-
-  const handleMin = () => ipc ? ipc.send('window-min') : null;
-  const handleClose = () => ipc ? ipc.send('window-close') : null;
 
   return (
     <div className="flex h-screen bg-slate-900 text-slate-100 overflow-hidden relative border border-white/10 rounded-2xl shadow-2xl">
       <div style={{ WebkitAppRegion: 'drag' } as any} className="absolute top-0 left-0 right-0 h-12 z-0 cursor-move" />
-      
       <div className="absolute top-0 left-0 right-0 h-12 flex justify-between items-center px-4 z-50 pointer-events-none">
         <div className="flex items-center gap-2">
           <div className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-pulse"></div>
           <span className="text-[9px] font-black text-slate-400 uppercase tracking-[0.3em]">ZenNote AI</span>
         </div>
-        
         <div className="flex space-x-3 items-center pointer-events-auto" style={{ WebkitAppRegion: 'no-drag' } as any}>
-           <button onClick={handleMin} className="w-3 h-3 rounded-full bg-yellow-500/80 hover:brightness-110 active:scale-90 transition-all" />
-           <button onClick={handleClose} className="w-3 h-3 rounded-full bg-red-500/80 hover:brightness-110 active:scale-90 transition-all" />
+           <button onClick={() => ipc?.send('window-min')} className="w-3 h-3 rounded-full bg-yellow-500/80 hover:brightness-110 active:scale-90 transition-all" />
+           <button onClick={() => ipc?.send('window-close')} className="w-3 h-3 rounded-full bg-red-500/80 hover:brightness-110 active:scale-90 transition-all" />
         </div>
       </div>
-
       <Sidebar activeView={activeView} setActiveView={setActiveView} />
-
       <main className="flex-1 flex flex-col pt-14 pb-4 px-6 overflow-hidden bg-gradient-to-br from-slate-900 to-indigo-950/20">
         <div className="flex-1 flex flex-col overflow-hidden min-h-0">
           {activeView === ViewMode.DASHBOARD && (
@@ -128,10 +99,11 @@ const App: React.FC = () => {
             <div className="flex-1 overflow-y-auto custom-scrollbar">
               <NoteView 
                 notes={notes} 
+                topics={topics}
+                setTopics={setTopics}
                 onAddNote={handleAddNote} 
-                setNotes={handleUpdateNote} 
                 onDeleteNote={handleDeleteNote}
-                onUndo={()=>{}} onRedo={()=>{}} canUndo={false} canRedo={false} 
+                onDeleteTopic={handleDeleteTopic}
               />
             </div>
           )}

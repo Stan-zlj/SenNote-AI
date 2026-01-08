@@ -4,6 +4,7 @@ export interface Note {
   content: string;
   createdAt: number;
   tags: string[];
+  topic: string;
   style?: {
     bold?: boolean;
     italic?: boolean;

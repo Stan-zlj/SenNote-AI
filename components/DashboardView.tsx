@@ -11,11 +11,10 @@ interface DashboardProps {
 
 const DashboardView: React.FC<DashboardProps> = ({ timerSeconds, setTimerSeconds, isRunning, setIsRunning }) => {
   const [time, setTime] = useState(new Date());
-  const [inputHours, setInputHours] = useState(0);
-  const [inputMinutes, setInputMinutes] = useState(0);
   const [quickInput, setQuickInput] = useState('');
   const [quickResult, setQuickResult] = useState('');
   const [isFastLoading, setIsFastLoading] = useState(false);
+  const [copyStatus, setCopyStatus] = useState('拷贝');
 
   useEffect(() => {
     const timer = setInterval(() => setTime(new Date()), 1000);
@@ -26,60 +25,35 @@ const DashboardView: React.FC<DashboardProps> = ({ timerSeconds, setTimerSeconds
     if (!quickInput.trim()) return;
     setIsFastLoading(true);
     setQuickResult('');
-    try {
-      // 调用增强后的 fastQuery
-      const res = await fastQuery(quickInput);
-      setQuickResult(res || '未收到回复');
-    } catch (e: any) {
-      console.error("FastAsk failed:", e);
-      setQuickResult(`查询失败：${e.message || '请检查 API 密钥及网络'}`);
-    } finally {
-      setIsFastLoading(false);
-    }
+    const res = await fastQuery(quickInput);
+    setQuickResult(res || '未收到回复');
+    setIsFastLoading(false);
   };
 
-  const formatDate = (d: Date) => {
-    const y = d.getFullYear();
-    const m = (d.getMonth() + 1).toString().padStart(2, '0');
-    const day = d.getDate().toString().padStart(2, '0');
-    return `${y}-${m}-${day}`;
-  };
-
-  const startTimer = () => {
-    const total = (inputHours * 3600) + (inputMinutes * 60);
-    if (total > 0) {
-      setTimerSeconds(total);
-      setIsRunning(true);
-    }
-  };
-
-  const formatTimer = (s: number) => {
-    const h = Math.floor(s / 3600);
-    const m = Math.floor((s % 3600) / 60);
-    const sec = s % 60;
-    return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}:${sec.toString().padStart(2, '0')}`;
+  const handleCopy = () => {
+    if (!quickResult) return;
+    navigator.clipboard.writeText(quickResult);
+    setCopyStatus('已拷贝');
+    setTimeout(() => setCopyStatus('拷贝'), 2000);
   };
 
   return (
-    <div className="flex flex-col items-center justify-start h-full space-y-8 animate-in fade-in duration-700 pt-4 px-2">
-      {/* 动态时钟 */}
+    <div className="flex flex-col items-center justify-start h-full space-y-8 pt-4 px-2">
       <div className="text-center space-y-1">
         <div className="text-slate-500 text-[10px] font-black tracking-[0.4em] uppercase">
-          {formatDate(time)}
+          {time.toISOString().split('T')[0]}
         </div>
         <div className="text-5xl font-black text-white tabular-nums tracking-tighter drop-shadow-2xl">
           {time.toLocaleTimeString('zh-CN', { hour12: false })}
         </div>
       </div>
 
-      {/* 极速闪回区域 */}
       <div className="w-full bg-slate-800/40 border border-white/10 p-5 rounded-[32px] shadow-2xl backdrop-blur-xl space-y-4">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <div className="w-2 h-2 rounded-full bg-yellow-400 animate-pulse" />
             <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">极速闪回</span>
           </div>
-          <span className="text-[9px] text-slate-500 font-bold uppercase tracking-tighter">Gemini 3 Flash</span>
         </div>
         
         <div className="flex gap-2">
@@ -87,83 +61,46 @@ const DashboardView: React.FC<DashboardProps> = ({ timerSeconds, setTimerSeconds
             value={quickInput}
             onChange={e => setQuickInput(e.target.value)}
             onKeyDown={e => e.key === 'Enter' && handleFastAsk()}
-            placeholder="查单词、问事实、要简介..." 
+            placeholder="问事实、查单词..." 
             className="flex-1 bg-slate-900/60 border border-white/5 rounded-2xl px-4 py-3 text-xs text-white outline-none focus:ring-1 focus:ring-yellow-500/50 transition-all"
           />
           <button 
             onClick={handleFastAsk}
-            disabled={isFastLoading || !quickInput.trim()}
-            className="bg-indigo-600 hover:bg-indigo-500 px-5 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all shadow-lg active:scale-95 disabled:opacity-30"
+            disabled={isFastLoading}
+            className="bg-indigo-600 hover:bg-indigo-500 px-5 rounded-2xl text-[10px] font-black uppercase transition-all shadow-lg active:scale-95 disabled:opacity-30"
           >
-            {isFastLoading ? (
-              <div className="w-3 h-3 border-2 border-white/20 border-t-white rounded-full animate-spin" />
-            ) : 'ASK'}
+            {isFastLoading ? "..." : "ASK"}
           </button>
         </div>
         
         {quickResult && (
-          <div className={`p-4 rounded-2xl border border-white/5 text-[11px] leading-relaxed max-h-40 overflow-y-auto custom-scrollbar animate-in slide-in-from-top-2 ${quickResult.startsWith('查询失败') ? 'bg-red-500/10 text-red-400' : 'bg-slate-900/80 text-slate-300'}`}>
-            {quickResult}
+          <div className="relative group animate-in slide-in-from-top-2">
+            <div className={`p-4 rounded-2xl border border-white/5 text-[11px] leading-relaxed max-h-40 overflow-y-auto custom-scrollbar whitespace-pre-wrap ${quickResult.includes('失败') ? 'bg-red-500/10 text-red-400 border-red-500/20' : 'bg-slate-900/80 text-slate-300'}`}>
+              {quickResult}
+            </div>
+            <button 
+              onClick={handleCopy}
+              className="absolute top-2 right-2 bg-indigo-600/80 hover:bg-indigo-600 text-[9px] font-bold text-white px-2 py-1 rounded-md opacity-0 group-hover:opacity-100 transition-opacity"
+            >
+              {copyStatus}
+            </button>
           </div>
         )}
       </div>
 
-      {/* 专注计时器 */}
       <div className="w-full max-w-[320px] bg-slate-800/40 border border-white/10 p-8 rounded-[48px] flex flex-col items-center space-y-6 shadow-2xl backdrop-blur-xl relative group">
-        <div className="absolute top-0 left-0 w-full h-1 bg-indigo-500/20 group-hover:bg-indigo-500/40 transition-all"></div>
-        <div className="text-[11px] font-black text-indigo-400 uppercase tracking-[0.2em]">专注计时 (Focus)</div>
-        
-        {timerSeconds > 0 || isRunning ? (
-          <div className="text-5xl font-mono font-bold text-white mb-2 tabular-nums">
-            {formatTimer(timerSeconds)}
-          </div>
-        ) : (
-          <div className="flex gap-4 items-center">
-            <div className="flex flex-col items-center">
-              <input 
-                type="number" min="0" max="23" value={inputHours} 
-                onChange={e => setInputHours(Math.min(23, Math.max(0, parseInt(e.target.value) || 0)))}
-                className="w-16 bg-slate-900/80 border border-white/10 rounded-2xl p-3 text-center text-2xl font-bold text-indigo-400 outline-none focus:ring-2 focus:ring-indigo-500/50"
-              />
-              <span className="text-[10px] text-slate-500 mt-2 uppercase font-black">时</span>
-            </div>
-            <span className="text-slate-700 text-2xl font-bold mb-6">:</span>
-            <div className="flex flex-col items-center">
-              <input 
-                type="number" min="0" max="59" value={inputMinutes} 
-                onChange={e => setInputMinutes(Math.min(59, Math.max(0, parseInt(e.target.value) || 0)))}
-                className="w-16 bg-slate-900/80 border border-white/10 rounded-2xl p-3 text-center text-2xl font-bold text-indigo-400 outline-none focus:ring-2 focus:ring-indigo-500/50"
-              />
-              <span className="text-[10px] text-slate-500 mt-2 uppercase font-black">分</span>
-            </div>
-          </div>
-        )}
-
-        <div className="flex gap-3 w-full">
-          {!isRunning ? (
-            <button 
-              onClick={startTimer}
-              className="flex-1 bg-indigo-600 hover:bg-indigo-500 text-white py-4 rounded-3xl font-black text-xs uppercase tracking-widest transition-all shadow-xl active:scale-95"
-            >
-              开始专注
-            </button>
-          ) : (
-            <>
-              <button 
-                onClick={() => setIsRunning(false)}
-                className="flex-1 bg-slate-700 hover:bg-slate-600 text-white py-4 rounded-3xl font-black text-xs uppercase"
-              >
-                暂停
-              </button>
-              <button 
-                onClick={() => { setIsRunning(false); setTimerSeconds(0); }}
-                className="px-6 bg-red-500/20 hover:bg-red-500/40 text-red-400 py-4 rounded-3xl font-black text-xs uppercase"
-              >
-                重置
-              </button>
-            </>
-          )}
+        <div className="absolute top-0 left-0 w-full h-1 bg-indigo-500/20"></div>
+        <div className="text-[11px] font-black text-indigo-400 uppercase tracking-[0.2em]">专注计时器</div>
+        <div className="text-5xl font-mono font-bold text-white mb-2 tabular-nums">
+          {Math.floor(timerSeconds/3600).toString().padStart(2, '0')}:
+          {Math.floor((timerSeconds%3600)/60).toString().padStart(2, '0')}:
+          {(timerSeconds%60).toString().padStart(2, '0')}
         </div>
+        {!isRunning ? (
+           <button onClick={() => { setTimerSeconds(25*60); setIsRunning(true); }} className="bg-indigo-600 px-10 py-3 rounded-2xl text-[10px] font-black uppercase">开启 25MIN 专注</button>
+        ) : (
+          <button onClick={() => setIsRunning(false)} className="bg-red-500 px-10 py-3 rounded-2xl text-[10px] font-black uppercase">停止</button>
+        )}
       </div>
     </div>
   );

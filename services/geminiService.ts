@@ -1,31 +1,38 @@
 
 import { GoogleGenAI, Type, Modality } from "@google/genai";
 
+// 动态获取客户端，确保 API_KEY 环境在调用时是最新的
 const getAIClient = () => {
-  return new GoogleGenAI({ apiKey: process.env.API_KEY });
+  const apiKey = process.env.API_KEY;
+  if (!apiKey) {
+    throw new Error("API_KEY_MISSING");
+  }
+  return new GoogleGenAI({ apiKey });
 };
 
 /**
- * 极速闪回：专注于极低延迟的简短回答
+ * 极速闪回：优化报错处理，确保用户能拷贝错误信息
  */
 export const fastQuery = async (prompt: string) => {
-  const ai = getAIClient();
   try {
+    const ai = getAIClient();
     const response = await ai.models.generateContent({
       model: 'gemini-3-flash-preview',
       contents: prompt,
       config: {
-        // 对于“极速”场景，禁用思考过程（thinkingBudget: 0）可显著减少延迟并避免冲突
         thinkingConfig: { thinkingBudget: 0 },
-        temperature: 0.2, // 较低的随机性，适合事实性查询
-        maxOutputTokens: 500,
+        temperature: 0.1,
+        maxOutputTokens: 800,
       }
     });
     return response.text;
   } catch (error: any) {
     console.error("Gemini FastQuery Error:", error);
-    // 抛出更有意义的错误信息
-    throw new Error(error.message || "API 调用超时或配置有误");
+    // 返回包含具体原因的字符串，方便用户在界面上选取拷贝
+    if (error.message === "API_KEY_MISSING") {
+      return "查询失败：检测到 API Key 未配置，请联系管理员或检查环境设置。";
+    }
+    return `查询失败：${error.message || '网络连接中断或 API 限制'}`;
   }
 };
 
@@ -74,57 +81,35 @@ export const speakText = async (text: string) => {
 
 export const generateMindMap = async (topic: string) => {
   const ai = getAIClient();
-  const prompt = `Generate a hierarchical mind map structure for the topic: "${topic}". 
-  Return ONLY a raw JSON object with this structure: { "label": "string", "children": [ { "label": "string", "children": [] } ] }.
-  Avoid extra text or markdown formatting outside the JSON.`;
-  
+  const prompt = `Generate a JSON mind map for: "${topic}". Structure: { "label": "string", "children": [] }`;
   const response = await ai.models.generateContent({
     model: 'gemini-3-flash-preview',
     contents: prompt,
     config: { responseMimeType: "application/json" }
   });
-  
-  try {
-    return JSON.parse(response.text || '{}');
-  } catch (e) {
-    return null;
-  }
+  try { return JSON.parse(response.text || '{}'); } catch (e) { return null; }
 };
 
 export function encode(bytes: Uint8Array) {
   let binary = '';
-  const len = bytes.byteLength;
-  for (let i = 0; i < len; i++) {
-    binary += String.fromCharCode(bytes[i]);
-  }
+  for (let i = 0; i < bytes.byteLength; i++) binary += String.fromCharCode(bytes[i]);
   return btoa(binary);
 }
 
 export function decode(base64: string) {
   const binaryString = atob(base64);
-  const len = binaryString.length;
-  const bytes = new Uint8Array(len);
-  for (let i = 0; i < len; i++) {
-    bytes[i] = binaryString.charCodeAt(i);
-  }
+  const bytes = new Uint8Array(binaryString.length);
+  for (let i = 0; i < binaryString.length; i++) bytes[i] = binaryString.charCodeAt(i);
   return bytes;
 }
 
-export async function decodeAudioData(
-  data: Uint8Array,
-  ctx: AudioContext,
-  sampleRate: number,
-  numChannels: number,
-): Promise<AudioBuffer> {
+export async function decodeAudioData(data: Uint8Array, ctx: AudioContext, sampleRate: number, numChannels: number): Promise<AudioBuffer> {
   const dataInt16 = new Int16Array(data.buffer);
   const frameCount = dataInt16.length / numChannels;
   const buffer = ctx.createBuffer(numChannels, frameCount, sampleRate);
-
   for (let channel = 0; channel < numChannels; channel++) {
     const channelData = buffer.getChannelData(channel);
-    for (let i = 0; i < frameCount; i++) {
-      channelData[i] = dataInt16[i * numChannels + channel] / 32768.0;
-    }
+    for (let i = 0; i < frameCount; i++) channelData[i] = dataInt16[i * numChannels + channel] / 32768.0;
   }
   return buffer;
 }

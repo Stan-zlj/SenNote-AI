@@ -1,12 +1,24 @@
 
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
 body {
-    font-family: 'Inter', sans-serif;
+    font-family: 'Inter', -apple-system, sans-serif;
     background: transparent;
     margin: 0;
     overflow: hidden;
     height: 100vh;
     width: 100vw;
-    user-select: none;
+    /* 全局允许文字选中，方便拷贝 */
+    user-select: text !important;
+    -webkit-user-select: text !important;
+}
+
+/* 针对拖拽区域依然保持禁止选中，防止误触 */
+[style*="WebkitAppRegion: drag"] {
+    user-select: none !important;
+    -webkit-user-select: none !important;
 }
 
 #root {
@@ -14,7 +26,12 @@ body {
     width: 100%;
 }
 
-/* 全局滚动条样式 */
+::selection {
+    background: rgba(99, 102, 241, 0.3);
+    color: white;
+}
+
+/* 滚动条美化 */
 ::-webkit-scrollbar {
     width: 4px;
 }
@@ -24,20 +41,15 @@ body {
 }
 
 ::-webkit-scrollbar-thumb {
-    background: rgba(156, 163, 175, 0.2);
+    background: rgba(255, 255, 255, 0.1);
     border-radius: 10px;
 }
 
-/* 局部滚动条样式 */
-.custom-scrollbar::-webkit-scrollbar {
-    width: 4px;
+::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 255, 255, 0.2);
 }
 
-.custom-scrollbar::-webkit-scrollbar-track {
-    background: transparent;
-}
-
-.custom-scrollbar::-webkit-scrollbar-thumb {
-    background: rgba(156, 163, 175, 0.2);
-    border-radius: 10px;
+.custom-scrollbar {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(255, 255, 255, 0.1) transparent;
 }
